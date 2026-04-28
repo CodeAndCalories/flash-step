@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume } from './audio.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw } from './renderer.js';
 import { stepEnemy, checkEnd, isWall } from './enemy.js';
@@ -43,7 +43,8 @@ function initGame() {
   const [ec, er] = cands[Math.random() * Math.min(cands.length, Math.max(1, cands.length * 0.2)) | 0];
   state.E.x = ec + 0.5; state.E.y = er + 0.5; state.E.moveTimer = 0;
 
-  state.ENEMY_MS = Math.max(1100 - state.level * 80, 420);
+  state.ENEMY_MS     = Math.max(1100 - state.level * 80, 420);
+  state.baseEnemyMS  = state.ENEMY_MS;
 
   // Spawn battery pickups on random open floor cells
   const numBatteries = Math.min(3 + Math.floor(state.level / 2), 7);
@@ -67,8 +68,11 @@ function initGame() {
   state.flashDecay = 0; state.outlineAlpha = 0; state.flashHeldMs = 0;
   state.bobTimer = 0; state.isMoving = false; state.footstepTimer = 0;
   state.heartbeatTimer = 0; state.shakeX = 0; state.shakeY = 0; state.shakeAmt = 0;
-  state.firstFlashDone = false; state.minimapTimer = 0; state.jumpScareTimer = 0;
-  state.crumbs = [];
+  state.firstFlashDone  = false; state.minimapTimer = 0; state.jumpScareTimer = 0;
+  state.crumbs          = [];
+  state.flashDrainCount = 0;
+  state.panicLevel      = 0; state.panicDecayTimer = 0;
+  resetPanicAudio();
   updateUI();
 }
 
@@ -89,19 +93,64 @@ function loop(ts) {
   if (state.paused)                  { state.frameId = requestAnimationFrame(loop); return; }
   if (state.gameState !== 'playing') { state.frameId = requestAnimationFrame(loop); return; }
 
-  // Flash — two-stage fade
+  // Flash — two-stage fade + hold drain + panic escalation
   if (state.flashHeld) {
-    state.flashAlpha  = Math.min(1, state.flashAlpha + dt / 28);
-    state.flashDecay  = state.flashAlpha;
+    state.flashAlpha   = Math.min(1, state.flashAlpha + dt / 28);
+    state.flashDecay   = state.flashAlpha;
     state.flashHeldMs += dt;
     state.outlineAlpha = 1;
+
+    // Continuous drain: 1 charge per 1.5 s after the first second
+    if (state.flashHeldMs > 1000) {
+      const expected = Math.floor((state.flashHeldMs - 1000) / 1500) + 1;
+      while (state.flashDrainCount < expected) {
+        state.flashDrainCount++;
+        state.flashCount = Math.max(0, state.flashCount - 1);
+        if (state.flashCount === 0) { state.flashHeld = false; break; }
+      }
+    }
+
+    // Panic escalation (skipped if drain just killed the flash)
+    if (state.flashHeld) {
+      if (state.panicLevel < 1 && state.flashHeldMs >= 3000) {
+        state.panicLevel = 1;
+        state.ENEMY_MS   = Math.max(150, state.baseEnemyMS / 2);
+        playPanicWarning();
+      }
+      if (state.panicLevel < 2 && state.flashHeldMs >= 4000) {
+        state.panicLevel = 2;
+        state.ENEMY_MS   = Math.max(150, state.baseEnemyMS / 3);
+      }
+      if (state.panicLevel < 3 && state.flashHeldMs >= 5000) {
+        state.panicLevel = 3;
+        state.ENEMY_MS   = 150;
+      }
+    }
   } else {
     state.flashAlpha  = Math.max(0, state.flashAlpha - dt * settings.flashFade / 120);
     state.flashDecay  = Math.max(0, state.flashDecay - dt * settings.flashFade / 52);
-    // Outline lingers: longer you held, longer it stays (0.5 s base + up to 5 s extra)
-    const lingerMs = 500 + Math.min(state.flashHeldMs * 3, 5000);
+    const lingerMs    = 500 + Math.min(state.flashHeldMs * 3, 5000);
     state.outlineAlpha = Math.max(0, state.outlineAlpha - dt / lingerMs);
     state.flashHeldMs  = 0;
+    state.flashDrainCount = 0;
+
+    // Panic decay: speed recovers over 3 s after releasing flash
+    if (state.panicLevel > 0) {
+      state.panicDecayTimer += dt;
+      if (state.panicDecayTimer >= 3000) {
+        state.panicLevel      = 0;
+        state.panicDecayTimer = 0;
+        state.ENEMY_MS        = state.baseEnemyMS;
+        resetPanicAudio();
+      } else if (state.panicDecayTimer > 1000) {
+        // Smooth speed interpolation back to normal over the last 2 s
+        const t      = (state.panicDecayTimer - 1000) / 2000;
+        const peakMS = state.panicLevel >= 3 ? 150
+                     : state.panicLevel === 2 ? Math.max(150, state.baseEnemyMS / 3)
+                     :                          Math.max(150, state.baseEnemyMS / 2);
+        state.ENEMY_MS = peakMS + (state.baseEnemyMS - peakMS) * t;
+      }
+    }
   }
 
   // Movement
@@ -187,10 +236,19 @@ function loop(ts) {
     state.heartbeatTimer = 0;
   }
 
+  // Panic footsteps — spatial audio panned to enemy bearing
+  if (state.panicLevel > 0) {
+    const edx = state.E.x - P.x, edy = state.E.y - P.y;
+    let eAng = Math.atan2(edy, edx) - P.angle;
+    while (eAng >  Math.PI) eAng -= Math.PI * 2;
+    while (eAng < -Math.PI) eAng += Math.PI * 2;
+    updatePanicAudio(state.panicLevel, Math.sin(eAng) * 0.85, pd);
+  }
+
   const result = checkEnd();
   if (result) {
     state.gameState = result; state.flashHeld = false;
-    stopAmbient(); stopExitHum();
+    stopAmbient(); stopExitHum(); resetPanicAudio();
     if (result === 'dead') {
       state.jumpScareTimer = 1.0;
       if (settings.screenshake) {
@@ -222,7 +280,8 @@ function loop(ts) {
 function updateUI() {
   const flashEl = document.getElementById('s-flash');
   flashEl.innerHTML = `FLASHES<br>${state.flashCount}`;
-  flashEl.classList.toggle('low-battery', state.flashCount <= 2 && state.gameState === 'playing');
+  flashEl.classList.toggle('low-battery',    state.flashCount <= 2 && state.gameState === 'playing' && !state.flashHeld);
+  flashEl.classList.toggle('flash-draining', state.flashHeld && state.flashHeldMs > 1000 && state.flashCount > 0);
   document.getElementById('s-level').textContent = `LEVEL ${state.level}`;
   const dx = state.P.x - (state.COLS - 1.5), dy = state.P.y - (state.ROWS - 1.5);
   document.getElementById('s-dist').innerHTML = `DIST<br>${state.gameState === 'playing' ? Math.round(Math.sqrt(dx * dx + dy * dy)) : '—'}`;

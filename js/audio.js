@@ -321,3 +321,89 @@ export function updateExitHum(dist, pan) {
     humNodes.panner.pan.setTargetAtTime(pan, a.currentTime, 0.08);
   } catch(e) {}
 }
+
+// ── Panic audio ───────────────────────────────────────────────────────────────
+
+// Distant muffled warning screech — triggered at panic level 1 (3 s hold)
+export function playPanicWarning() {
+  try {
+    const a = getAudio();
+    const o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+    o.type = 'sawtooth'; o.frequency.value = 175;
+    f.type = 'lowpass';  f.frequency.value  = 360; f.Q.value = 1.8;
+    const t = a.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.10, t + 0.07);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+    o.connect(f); f.connect(g); g.connect(getMasterGain());
+    o.start(t); o.stop(t + 1.15);
+  } catch(e) {}
+  tone(88, 'square', 0.28, 0.07, 0.06);
+}
+
+// Heavy spatial footstep — panned to enemy bearing
+function playPanicFootstep(pan, vol) {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.09);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(Math.max(0, 1 - i / (len * 0.12)), 2.2);
+    const src    = a.createBufferSource();
+    const lp     = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160;
+    const g      = a.createGain();         g.gain.value = vol;
+    const panner = a.createStereoPanner(); panner.pan.value = pan;
+    src.buffer = buf;
+    src.connect(lp); lp.connect(g); g.connect(panner); panner.connect(getMasterGain());
+    src.start();
+  } catch(e) {}
+}
+
+// Heavy exhale — level 3 only
+function playPanicBreath(pan) {
+  try {
+    const a   = getAudio();
+    const len = Math.floor(a.sampleRate * (0.4 + Math.random() * 0.18));
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
+    const src    = a.createBufferSource();
+    const bp     = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 580; bp.Q.value = 1.8;
+    const g      = a.createGain();         g.gain.value = 0.13;
+    const panner = a.createStereoPanner(); panner.pan.value = pan;
+    src.buffer = buf;
+    src.connect(bp); bp.connect(g); g.connect(panner); panner.connect(getMasterGain());
+    src.start();
+  } catch(e) {}
+}
+
+// AudioContext-time scheduling — called every game frame while panic > 0
+let _stepNext  = 0;
+let _breathNext = 0;
+
+export function updatePanicAudio(level, pan, dist) {
+  if (level === 0) return;
+  try {
+    const a    = getAudio();
+    const now  = a.currentTime;
+    const intervals = [0, 0, 0.36, 0.17]; // seconds between footsteps
+    const interval  = intervals[Math.min(level, 3)];
+    const vol  = Math.min(1, 2.2 / Math.max(0.6, dist)) * (0.22 + level * 0.11);
+
+    if (interval > 0 && now >= _stepNext) {
+      _stepNext = now + interval * (0.85 + Math.random() * 0.3);
+      playPanicFootstep(pan, vol);
+    }
+    if (level >= 3 && now >= _breathNext) {
+      _breathNext = now + 0.60 + Math.random() * 0.35;
+      playPanicBreath(pan * 0.5);
+    }
+  } catch(e) {}
+}
+
+export function resetPanicAudio() {
+  _stepNext   = 0;
+  _breathNext = 0;
+}
