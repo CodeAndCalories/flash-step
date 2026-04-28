@@ -215,6 +215,13 @@ function showMsg(type) {
   if (type === 'win') state.level++;
 }
 
+// ── Bootstrap — must run before event listeners reference state.canvas ────────
+state.canvas = document.getElementById('c');
+state.ctx    = state.canvas.getContext('2d');
+resize();
+state.ctx.fillStyle = '#000';
+state.ctx.fillRect(0, 0, state.W, state.H);
+
 // ── Controls ──────────────────────────────────────────────────────────────────
 
 function startFlash() {
@@ -287,9 +294,3 @@ document.getElementById('retry-btn').addEventListener('click', () => {
   startAmbient(); startExitHum();
 });
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
-state.canvas = document.getElementById('c');
-state.ctx    = state.canvas.getContext('2d');
-resize();
-state.ctx.fillStyle = '#000';
-state.ctx.fillRect(0, 0, state.W, state.H);
