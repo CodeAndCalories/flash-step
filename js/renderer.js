@@ -5,6 +5,26 @@ export const HFOV = FOV / 2;
 export const MAXD = 18;
 export const NR   = 240;
 
+function getWallTheme(level) {
+  if (level >= 10) return 'wrong';
+  if (level >= 7)  return 'cave';
+  if (level >= 4)  return 'sewer';
+  return 'dungeon';
+}
+
+function mimicScreen() {
+  const { P, M, W, H } = state;
+  if (!M || !M.active) return null;
+  const dx = M.x - P.x, dy = M.y - P.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.1) return null;
+  let a = Math.atan2(dy, dx) - P.angle;
+  while (a >  Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  if (Math.abs(a) > HFOV * 1.35) return null;
+  return { sx: W / 2 + (a / HFOV) * (W / 2), dist, ph: Math.min(H * 1.65 / dist, H * 3.5) };
+}
+
 export function cast(ox, oy, angle) {
   const { MAP, COLS, ROWS } = state;
   const dx = Math.cos(angle), dy = Math.sin(angle);
@@ -50,31 +70,47 @@ export function draw(lit, bob, outline) {
   ctx.fillStyle = '#000';
   ctx.fillRect(-20, -20, W + 40, H + 40);
 
-  const hs = bob * H * 0.28;
+  const hs    = bob * H * 0.28;
+  const theme = getWallTheme(state.level);
 
   if (lit > 0) {
+    // Theme-aware ceiling and floor tints
+    let c0, c1, f0, f1;
+    if (theme === 'sewer') {
+      c0 = `rgba(3,7,4,${lit})`;  c1 = `rgba(10,16,9,${lit})`;
+      f0 = `rgba(6,12,6,${lit})`; f1 = `rgba(1,4,1,${lit})`;
+    } else if (theme === 'cave') {
+      c0 = `rgba(6,4,2,${lit})`;  c1 = `rgba(20,11,5,${lit})`;
+      f0 = `rgba(16,8,3,${lit})`; f1 = `rgba(4,2,1,${lit})`;
+    } else if (theme === 'wrong') {
+      const tw  = (Date.now() / 5000) % 1;
+      const swp = 0.5 + 0.5 * Math.sin(tw * Math.PI * 2);
+      const hi = (14 + (swp * 8) | 0), lo = (4 - (swp * 2) | 0);
+      c0 = `rgba(${hi},3,3,${lit})`; c1 = `rgba(${lo + 2},8,10,${lit})`;
+      f0 = `rgba(${lo + 8},9,8,${lit})`; f1 = `rgba(3,${lo},1,${lit})`;
+    } else {
+      c0 = `rgba(5,3,3,${lit})`;  c1 = `rgba(18,10,10,${lit})`;
+      f0 = `rgba(14,8,8,${lit})`; f1 = `rgba(3,1,1,${lit})`;
+    }
     const cg = ctx.createLinearGradient(0, 0, 0, H / 2 + hs);
-    cg.addColorStop(0, `rgba(5,3,3,${lit})`);
-    cg.addColorStop(1, `rgba(18,10,10,${lit})`);
-    ctx.fillStyle = cg;
-    ctx.fillRect(0, 0, W, H / 2 + hs);
+    cg.addColorStop(0, c0); cg.addColorStop(1, c1);
+    ctx.fillStyle = cg; ctx.fillRect(0, 0, W, H / 2 + hs);
     const fg = ctx.createLinearGradient(0, H / 2 + hs, 0, H);
-    fg.addColorStop(0, `rgba(14,8,8,${lit})`);
-    fg.addColorStop(1, `rgba(3,1,1,${lit})`);
-    ctx.fillStyle = fg;
-    ctx.fillRect(0, H / 2 + hs, W, H);
+    fg.addColorStop(0, f0); fg.addColorStop(1, f1);
+    ctx.fillStyle = fg; ctx.fillRect(0, H / 2 + hs, W, H);
   }
 
   const cw = W / NR, zb = new Float32Array(NR);
 
   // Full colour render while lit
   if (lit > 0) {
+    const wallH = theme === 'sewer' ? 0.765 : 0.9; // sewer: lower ceiling (0.9 × 0.85)
     for (let i = 0; i < NR; i++) {
       const ra = P.angle - HFOV + (i / NR) * FOV;
       const { dist, goal, side, wx } = cast(P.x, P.y, ra);
       zb[i] = dist;
       const corr = dist * Math.cos(ra - P.angle);
-      const wh   = Math.min(H / corr * 0.9, H * 2.5);
+      const wh   = Math.min(H / corr * wallH, H * 2.5);
       const top  = (H - wh) / 2 + hs;
       const br   = Math.pow(Math.max(0, 1 - corr / MAXD), 1.08) * lit;
       let r, g, b;
@@ -82,13 +118,34 @@ export function draw(lit, bob, outline) {
         const gp = 0.7 + 0.3 * Math.sin(Date.now() * 0.003);
         r = (4 + br * 18) | 0; g = (25 + br * 170 * gp) | 0; b = (4 + br * 22) | 0;
       } else {
-        const sv     = side === 1 ? 0.72 : 1.0;
+        const sv    = side === 1 ? 0.72 : 1.0;
         const mortar = (wx > 0.47 && wx < 0.53) ? 0.6 : 1.0;
         const shade  = br * sv * mortar;
-        r = (18 + shade * 115) | 0; g = (10 + shade * 58) | 0; b = (10 + shade * 62) | 0;
+        if (theme === 'sewer') {
+          r = (10 + shade * 80) | 0; g = (18 + shade * 90) | 0; b = (12 + shade * 52) | 0;
+        } else if (theme === 'cave') {
+          const n = 0.88 + 0.24 * Math.abs(Math.sin(i * 7.31 + 1.1)); // column-stable noise
+          r = (22 + shade * 128 * n) | 0; g = (10 + shade * 46 * n) | 0; b = (4 + shade * 22 * n) | 0;
+        } else if (theme === 'wrong') {
+          const wb = 0.72 + 0.28 * Math.sin(Date.now() / 3800 * Math.PI * 2);
+          r = (20 + shade * 125 * wb) | 0; g = (5 + shade * 22) | 0; b = (8 + shade * 55 * (1.4 - wb)) | 0;
+        } else {
+          r = (18 + shade * 115) | 0; g = (10 + shade * 58) | 0; b = (10 + shade * 62) | 0;
+        }
       }
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.fillRect(i * cw, top, cw + 1, wh);
+    }
+    // Sewer: occasional drip dots at floor level
+    if (theme === 'sewer') {
+      ctx.fillStyle = `rgba(30,155,50,${lit * 0.10})`;
+      for (let j = 0; j < 5; j++) {
+        const col = (Math.random() * NR) | 0;
+        if (zb[col] > 1.5) {
+          const floorY = H / 2 + (H * 1.65 / zb[col]) * 0.30 + hs;
+          if (floorY < H - 2) ctx.fillRect(col * cw, floorY, 1, 1 + Math.random() * 4);
+        }
+      }
     }
   }
 
@@ -263,6 +320,7 @@ export function draw(lit, bob, outline) {
 
   // Full sprite render when flash is on
   if (es && lit > 0) {
+    state.lastKnownEnemy = { wx: E.x, wy: E.y };   // snapshot for afterimage
     const { sx, dist: d, ph } = es;
     const sw = ph * 0.58, sprX = sx - sw / 2, sprY = H / 2 - ph * 0.5 + hs;
     const sc0 = Math.max(0, (sprX / W * NR) | 0), sc1 = Math.min(NR - 1, ((sprX + sw) / W * NR) | 0);
@@ -301,6 +359,86 @@ export function draw(lit, bob, outline) {
       ctx.beginPath(); ctx.moveTo(sx - sw * 0.17, sprY + ph * 0.44); ctx.lineTo(sx - sw * 0.6, sprY + ph * 0.7); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(sx + sw * 0.17, sprY + ph * 0.44); ctx.lineTo(sx + sw * 0.6, sprY + ph * 0.7); ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  // Afterimage — fading ghost at last-seen enemy world position (no depth test = shows through walls)
+  if (state.afterimage) {
+    const ai = state.afterimage;
+    const adx = ai.wx - P.x, ady = ai.wy - P.y;
+    const adist = Math.sqrt(adx * adx + ady * ady);
+    if (adist > 0.1) {
+      let aa = Math.atan2(ady, adx) - P.angle;
+      while (aa >  Math.PI) aa -= Math.PI * 2;
+      while (aa < -Math.PI) aa += Math.PI * 2;
+      if (Math.abs(aa) <= HFOV * 1.35) {
+        const asx = W / 2 + (aa / HFOV) * (W / 2);
+        const aph = Math.min(H * 1.65 / adist, H * 3.5);
+        const asw = aph * 0.58, asprX = asx - asw / 2, asprY = H / 2 - aph * 0.5 + hs;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(ai.alpha, 0.15));
+        ctx.fillStyle = 'rgba(160,20,20,1)';
+        ctx.fillRect(asprX + asw * 0.23, asprY + aph * 0.2, asw * 0.54, aph * 0.76);
+        ctx.beginPath(); ctx.ellipse(asx, asprY + aph * 0.13, asw * 0.26, aph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,150,150,1)';
+        const aesz = Math.max(1.5, aph * 0.036), aeo = Math.max(2, aph * 0.088), aey = asprY + aph * 0.1;
+        [asx - aeo, asx + aeo].forEach(ex => {
+          ctx.beginPath(); ctx.arc(ex, aey, aesz, 0, Math.PI * 2); ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+    }
+  }
+
+  // Mimic — pale ghostly silhouette, white eyes, level 3+
+  const ms = state.level >= 3 ? mimicScreen() : null;
+  const mimicPulse = 0.45 + 0.55 * Math.sin(Date.now() * 0.0028);
+
+  // Ambient mimic eyes in the dark — pale blue-white, slightly farther range than enemy
+  if (ms && ms.dist < 6.5) {
+    const mea = Math.pow(1 - ms.dist / 6.5, 2.0) * 0.78 * mimicPulse * Math.max(0, 1 - lit * 3);
+    if (mea > 0.01) {
+      const mey  = H / 2 - ms.ph * 0.38 + hs;
+      const mesz = Math.max(1.5, ms.ph * 0.036);
+      const meo  = Math.max(2.5, ms.ph * 0.088);
+      [ms.sx - meo, ms.sx + meo].forEach(ex => {
+        const eg = ctx.createRadialGradient(ex, mey, 0, ex, mey, mesz * 4.5);
+        eg.addColorStop(0,   `rgba(190,190,255,${mea})`);
+        eg.addColorStop(0.5, `rgba(110,110,190,${mea * 0.3})`);
+        eg.addColorStop(1,   'transparent');
+        ctx.fillStyle = eg;
+        ctx.fillRect(ex - mesz * 6, mey - mesz * 6, mesz * 12, mesz * 12);
+        ctx.fillStyle = `rgba(235,235,255,${Math.min(1, mea * 1.2)})`;
+        ctx.beginPath(); ctx.arc(ex, mey, mesz * 0.75, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+  }
+
+  // Mimic full ghostly sprite when lit (semi-transparent, no arms)
+  if (ms && lit > 0) {
+    const { sx: msx, dist: md, ph: mph } = ms;
+    const msw = mph * 0.58, msprX = msx - msw / 2, msprY = H / 2 - mph * 0.5 + hs;
+    const msc0 = Math.max(0, (msprX / W * NR) | 0), msc1 = Math.min(NR - 1, ((msprX + msw) / W * NR) | 0);
+    ctx.save();
+    ctx.beginPath();
+    for (let sc = msc0; sc <= msc1; sc++) if (zb[sc] > md) ctx.rect(sc * cw, 0, cw + 1, H);
+    ctx.clip();
+    const mba = Math.min(1, lit * 0.65) * Math.min(1, 5 / md) * 0.50; // more transparent than real enemy
+    ctx.fillStyle = `rgba(8,6,12,${mba})`;
+    ctx.fillRect(msprX + msw * 0.23, msprY + mph * 0.2, msw * 0.54, mph * 0.76);
+    ctx.fillStyle = `rgba(10,8,16,${mba})`;
+    ctx.beginPath(); ctx.ellipse(msx, msprY + mph * 0.13, msw * 0.26, mph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    const mela = Math.min(1, lit * 1.0) * mimicPulse * 0.85;
+    const mesz2 = Math.max(1.5, mph * 0.036), meo2 = Math.max(2, mph * 0.088), mey2 = msprY + mph * 0.1;
+    [msx - meo2, msx + meo2].forEach(ex => {
+      const eg = ctx.createRadialGradient(ex, mey2, 0, ex, mey2, mesz2 * 3.5);
+      eg.addColorStop(0, `rgba(200,200,255,${mela})`); eg.addColorStop(1, 'transparent');
+      ctx.fillStyle = eg;
+      ctx.fillRect(ex - mesz2 * 4, mey2 - mesz2 * 4, mesz2 * 8, mesz2 * 8);
+      ctx.fillStyle = `rgba(240,240,255,${mela})`;
+      ctx.beginPath(); ctx.arc(ex, mey2, mesz2, 0, Math.PI * 2); ctx.fill();
+    });
     ctx.restore();
   }
 
@@ -361,6 +499,10 @@ export function draw(lit, bob, outline) {
     ctx.fillStyle = '#ff2020'; ctx.fillRect(mx2 + E.x * ms - 1.5, my2 + E.y * ms - 1.5, 3, 3);
     ctx.fillStyle = '#ffcc22';
     for (const b of state.batteries) ctx.fillRect(mx2 + b.x * ms - 1, my2 + b.y * ms - 1, 2, 2);
+    if (state.level >= 3 && state.M.active) {
+      ctx.fillStyle = '#ccccff';
+      ctx.fillRect(mx2 + state.M.x * ms - 1.5, my2 + state.M.y * ms - 1.5, 3, 3);
+    }
     ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(mx2 + P.x * ms, my2 + P.y * ms);
