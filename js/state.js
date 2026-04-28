@@ -50,4 +50,10 @@ export const state = {
   panicLevel: 0,
   panicDecayTimer: 0,
   baseEnemyMS: 900,
+  playerHistory:   [],
+  historyTimer:    0,
+  M:               { x: 1.5, y: 1.5, active: false, moveTimer: 0 },
+  mimicSoundTimer: 0,
+  afterimage:      null,
+  lastKnownEnemy:  null,
 };

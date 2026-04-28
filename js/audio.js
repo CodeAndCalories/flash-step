@@ -407,3 +407,17 @@ export function resetPanicAudio() {
   _stepNext   = 0;
   _breathNext = 0;
 }
+
+// Mimic proximity ping — high ethereal tone, distinct from heartbeat
+export function playMimicPulse(intensity) {
+  try {
+    const a = getAudio(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine'; o.frequency.value = 520;
+    o.connect(g); g.connect(getMasterGain());
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.038 * intensity, t + 0.025);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    o.start(t); o.stop(t + 0.58);
+  } catch(e) {}
+}

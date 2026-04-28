@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio } from './audio.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw } from './renderer.js';
-import { stepEnemy, checkEnd, isWall } from './enemy.js';
+import { stepEnemy, stepMimic, checkEnd, isWall } from './enemy.js';
 
 const MOVE_SPD   = 3.2;
 const TURN_SPD   = 2.5;
@@ -72,6 +72,10 @@ function initGame() {
   state.crumbs          = [];
   state.flashDrainCount = 0;
   state.panicLevel      = 0; state.panicDecayTimer = 0;
+  state.playerHistory   = []; state.historyTimer = 0;
+  state.M               = { x: 1.5, y: 1.5, active: false, moveTimer: 0 };
+  state.mimicSoundTimer  = 0;
+  state.afterimage      = null; state.lastKnownEnemy = null;
   resetPanicAudio();
   updateUI();
 }
@@ -92,6 +96,8 @@ function loop(ts) {
 
   if (state.paused)                  { state.frameId = requestAnimationFrame(loop); return; }
   if (state.gameState !== 'playing') { state.frameId = requestAnimationFrame(loop); return; }
+
+  const prevFlashHeld = state.flashHeld;
 
   // Flash — two-stage fade + hold drain + panic escalation
   if (state.flashHeld) {
@@ -151,6 +157,12 @@ function loop(ts) {
         state.ENEMY_MS = peakMS + (state.baseEnemyMS - peakMS) * t;
       }
     }
+  }
+
+  // Snapshot enemy on flash release → afterimage
+  if (prevFlashHeld && !state.flashHeld && state.lastKnownEnemy) {
+    state.afterimage     = { ...state.lastKnownEnemy, alpha: 0.15 };
+    state.lastKnownEnemy = null;
   }
 
   // Movement
@@ -226,6 +238,33 @@ function loop(ts) {
   }
   if (state.minimapTimer > 0) state.minimapTimer -= dt / 1000;
 
+  // Player history recording + Mimic path-following (level 3+)
+  if (state.level >= 3) {
+    state.historyTimer += dt;
+    while (state.historyTimer >= 500) {
+      state.historyTimer -= 500;
+      state.playerHistory.push({ x: P.x, y: P.y });
+      if (state.playerHistory.length > 40) state.playerHistory.shift();
+      // Activate mimic once 12 s of history is built up (25 entries × 0.5 s = 12.5 s)
+      if (state.playerHistory.length >= 25) {
+        state.M.active = true;
+        // Normal mode: replay the lagged path; panic mode overrides with BFS below
+        if (state.panicLevel === 0) {
+          const pos = state.playerHistory[state.playerHistory.length - 25];
+          state.M.x = pos.x; state.M.y = pos.y;
+        }
+      }
+    }
+    // During panic: mimic also BFS-hunts player (slower than main enemy)
+    if (state.M.active && state.panicLevel > 0) {
+      state.M.moveTimer += dt;
+      const mimicMS = Math.max(320, state.ENEMY_MS * 1.8);
+      while (state.M.moveTimer >= mimicMS) { state.M.moveTimer -= mimicMS; stepMimic(); }
+    } else {
+      state.M.moveTimer = 0;
+    }
+  }
+
   // Heartbeat — rate scales with proximity
   const pd = Math.sqrt((P.x - state.E.x) ** 2 + (P.y - state.E.y) ** 2);
   const hbRate = pd < 2 ? 3.2 : pd < 3.5 ? 2.2 : pd < 6 ? 1.4 : 0;
@@ -236,6 +275,16 @@ function loop(ts) {
     state.heartbeatTimer = 0;
   }
 
+  // Mimic proximity ping — high ethereal tone, distinct from heartbeat
+  if (state.level >= 3 && state.M.active) {
+    const md2 = Math.sqrt((P.x - state.M.x) ** 2 + (P.y - state.M.y) ** 2);
+    const mRate = md2 < 3 ? 2.5 : md2 < 5 ? 1.5 : md2 < 8 ? 0.7 : 0;
+    if (mRate > 0) {
+      state.mimicSoundTimer -= dt;
+      if (state.mimicSoundTimer <= 0) { playMimicPulse(mRate); state.mimicSoundTimer = Math.max(380, 900 / mRate); }
+    } else { state.mimicSoundTimer = 0; }
+  }
+
   // Panic footsteps — spatial audio panned to enemy bearing
   if (state.panicLevel > 0) {
     const edx = state.E.x - P.x, edy = state.E.y - P.y;
@@ -243,6 +292,12 @@ function loop(ts) {
     while (eAng >  Math.PI) eAng -= Math.PI * 2;
     while (eAng < -Math.PI) eAng += Math.PI * 2;
     updatePanicAudio(state.panicLevel, Math.sin(eAng) * 0.85, pd);
+  }
+
+  // Afterimage alpha decay
+  if (state.afterimage) {
+    state.afterimage.alpha -= dt / 3500;
+    if (state.afterimage.alpha <= 0) state.afterimage = null;
   }
 
   const result = checkEnd();
@@ -279,12 +334,13 @@ function loop(ts) {
 
 function updateUI() {
   const flashEl = document.getElementById('s-flash');
-  flashEl.innerHTML = `FLASHES<br>${state.flashCount}`;
+  flashEl.textContent = `FLASHES: ${state.flashCount}`;
   flashEl.classList.toggle('low-battery',    state.flashCount <= 2 && state.gameState === 'playing' && !state.flashHeld);
   flashEl.classList.toggle('flash-draining', state.flashHeld && state.flashHeldMs > 1000 && state.flashCount > 0);
-  document.getElementById('s-level').textContent = `LEVEL ${state.level}`;
+  document.getElementById('s-level').textContent = `LEVEL: ${state.level}`;
   const dx = state.P.x - (state.COLS - 1.5), dy = state.P.y - (state.ROWS - 1.5);
-  document.getElementById('s-dist').innerHTML = `DIST<br>${state.gameState === 'playing' ? Math.round(Math.sqrt(dx * dx + dy * dy)) : '—'}`;
+  const distVal = state.gameState === 'playing' ? Math.round(Math.sqrt(dx * dx + dy * dy)) : '—';
+  document.getElementById('s-dist').textContent = isMouseMode() ? `STEPS TO EXIT: ${distVal}` : `DIST: ${distVal}`;
   const sm = document.getElementById('s-moving');
   if (sm) sm.style.opacity = state.isMoving ? '1' : '0';
   const locked = document.pointerLockElement === state.canvas;
