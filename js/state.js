@@ -45,4 +45,5 @@ export const state = {
   decoys: [],
   crumbs: [],
   jumpScareTimer: 0,
+  paused: false,
 };

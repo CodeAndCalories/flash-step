@@ -23,6 +23,13 @@ export function setMasterVolume(v) {
   if (masterGainNode) masterGainNode.gain.setTargetAtTime(v, audioCtx.currentTime, 0.02);
 }
 
+export function suspendAudio() {
+  if (audioCtx && audioCtx.state === 'running') audioCtx.suspend().catch(() => {});
+}
+export function resumeAudio() {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+}
+
 export function tone(freq, type, dur, vol = 0.15, delay = 0) {
   try {
     const a = getAudio(), o = a.createOscillator(), g = a.createGain();
