@@ -38,8 +38,11 @@ canvas { display: block; position: fixed; top: 0; left: 0; }
 #crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 8; opacity: 0.15; }
 #s-moving { color: #881111; font-size: 8px; letter-spacing: 3px; margin-top: 2px; opacity: 0; transition: opacity .1s; text-shadow: 0 0 6px #ff0000; }
 
-@keyframes low-batt { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
-.low-battery { animation: low-batt 0.9s ease-in-out infinite; color: #ff3300 !important; text-shadow: 0 0 12px #ff220088 !important; }
+@keyframes low-batt    { 0%,100% { opacity: 1; } 50% { opacity: 0.20; } }
+@keyframes drain-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.18; } }
+
+.low-battery   { animation: low-batt 0.9s ease-in-out infinite; color: #ff3300 !important; text-shadow: 0 0 12px #ff220088 !important; }
+.flash-draining { animation: drain-pulse 0.42s ease-in-out infinite !important; color: #ff8800 !important; text-shadow: 0 0 10px #ff770066 !important; }
 
 /* ── Main menu ────────────────────────────────────────────────────────────────── */
 

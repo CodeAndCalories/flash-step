@@ -46,4 +46,8 @@ export const state = {
   crumbs: [],
   jumpScareTimer: 0,
   paused: false,
+  flashDrainCount: 0,
+  panicLevel: 0,
+  panicDecayTimer: 0,
+  baseEnemyMS: 900,
 };

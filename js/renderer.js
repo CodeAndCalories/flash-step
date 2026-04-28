@@ -328,6 +328,22 @@ export function draw(lit, bob, outline) {
     ctx.fillStyle = pv; ctx.fillRect(0, 0, W, H);
   }
 
+  // Panic vignette — escalating red edge pulse while flash is overheating
+  if (state.panicLevel > 0) {
+    const rates  = [0, 1150, 620, 290]; // ms per full pulse at each level
+    const maxA   = [0, 0.30, 0.46, 0.65][state.panicLevel];
+    const decay  = state.flashHeld ? 1 : Math.max(0, 1 - state.panicDecayTimer / 3000);
+    const pulse  = 0.5 + 0.5 * Math.sin((Date.now() / rates[state.panicLevel]) * Math.PI * 2);
+    const alpha  = pulse * maxA * decay;
+    if (alpha > 0.008) {
+      const pv2 = ctx.createRadialGradient(W / 2, H / 2, H * 0.24, W / 2, H / 2, H * 0.92);
+      pv2.addColorStop(0,   'transparent');
+      pv2.addColorStop(0.6, `rgba(160,0,0,${alpha * 0.45})`);
+      pv2.addColorStop(1,   `rgba(220,0,0,${alpha})`);
+      ctx.fillStyle = pv2; ctx.fillRect(0, 0, W, H);
+    }
+  }
+
   // Minimap — shown for 4 s after first flash
   if (minimapTimer > 0 && gameState === 'playing') {
     const a   = Math.min(1, minimapTimer * 0.8) * 0.88;
