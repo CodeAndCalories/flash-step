@@ -99,6 +99,22 @@ canvas { display: block; position: fixed; top: 0; left: 0; }
 }
 .menu-btn--back:hover { color: #bb2222; border-color: #771111; }
 
+.menu-btn--sm { padding: 10px 0; font-size: 11px; letter-spacing: 4px; opacity: 0.75; }
+.menu-btn--sm:hover, .menu-btn--sm:active { opacity: 1; }
+
+/* Platform choice buttons — more prominent than the utility buttons */
+.platform-btn {
+  border-color: #991111; color: #dd3333;
+  box-shadow: 0 0 28px #99111133, inset 0 0 20px #77111111;
+  font-size: 13px;
+}
+.platform-btn:hover, .platform-btn:active {
+  border-color: #cc2222; color: #ff5555;
+  box-shadow: 0 0 50px #99111155; background: #77111133;
+}
+
+.menu-sep { width: 50%; height: 1px; background: #1e0606; margin: 14px auto 4px; }
+
 .menu-panel-title {
   font-family: 'Creepster', cursive; font-size: clamp(32px, 7vw, 50px);
   color: #cc2222; letter-spacing: 6px;
