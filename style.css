@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=Creepster&family=Share+Tech+Mono&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; touch-action: none; font-family: 'Share Tech Mono', monospace; user-select: none; }
+canvas { display: block; position: fixed; top: 0; left: 0; }
+
+#ui { position: fixed; top: 0; left: 0; right: 0; padding: 12px 18px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
+.stat { color: #991111; font-size: 11px; letter-spacing: 2px; text-shadow: 0 0 8px #ff000066; line-height: 1.9; }
+
+/* #overlay removed — replaced by #menu */
+.title { font-family: 'Creepster', cursive; font-size: clamp(50px, 12vw, 88px); color: #fff; letter-spacing: 6px; text-shadow: 0 0 40px #fff5, 0 0 100px #fff2; margin-bottom: 4px; text-align: center; }
+.subtitle { color: #991111; font-size: clamp(10px, 2.5vw, 12px); letter-spacing: 4px; text-transform: uppercase; margin-bottom: 44px; text-align: center; line-height: 2.2; padding: 0 30px; text-shadow: 0 0 10px #ff0000; }
+.btn { background: transparent; border: 1px solid #771111; color: #bb2222; font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 5px; padding: 13px 40px; cursor: pointer; text-transform: uppercase; box-shadow: 0 0 20px #77111122, inset 0 0 20px #77111111; transition: all .2s; -webkit-tap-highlight-color: transparent; margin-top: 6px; }
+.btn:hover, .btn:active { background: #77111122; box-shadow: 0 0 40px #77111144; }
+.hint { margin-top: 26px; color: #333; font-size: 10px; letter-spacing: 3px; text-align: center; line-height: 2.3; }
+
+#msgscreen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000000f0; z-index: 30; opacity: 0; pointer-events: none; transition: opacity .5s; }
+#msgscreen.show { opacity: 1; pointer-events: all; }
+.msg-title { font-family: 'Creepster', cursive; font-size: clamp(54px, 14vw, 104px); letter-spacing: 4px; }
+.dead .msg-title { color: #ff1111; text-shadow: 0 0 60px #ff0000, 0 0 120px #ff000055; }
+.win  .msg-title { color: #eee; text-shadow: 0 0 50px #ffffff77; }
+.msg-sub  { margin-top: 8px; font-size: 11px; letter-spacing: 4px; color: #555; }
+.msg-info { margin-top: 4px; font-size: 9px; letter-spacing: 3px; color: #333; }
+
+#flash-btn { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 96px; height: 86px; background: transparent; border: 1px solid #ffffff14; color: #ffffff20; font-family: 'Share Tech Mono', monospace; font-size: 8px; letter-spacing: 3px; border-radius: 10px; cursor: pointer; pointer-events: all; z-index: 11; -webkit-tap-highlight-color: transparent; transition: all .08s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+#flash-btn .fi { font-size: 24px; line-height: 1; opacity: 0.3; }
+#flash-btn.active { border-color: #ffffffcc; box-shadow: 0 0 60px #ffffff22; background: #ffffff0c; }
+#flash-btn.active .fi { opacity: 1; }
+
+#dpad { position: fixed; bottom: 16px; left: 12px; display: flex; flex-direction: column; gap: 5px; z-index: 11; pointer-events: all; }
+.db { width: 68px; height: 68px; background: #ffffff06; border: 1px solid #ffffff0e; color: #ffffff30; font-size: 22px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background .08s; }
+.db:active, .db.pressed { background: #ffffff18; color: #ffffff66; }
+
+#turn-btns { position: fixed; bottom: 16px; right: 12px; display: flex; flex-direction: row; gap: 5px; z-index: 11; pointer-events: all; }
+.tb { width: 66px; height: 140px; background: #ffffff06; border: 1px solid #ffffff0e; color: #ffffff30; font-size: 26px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background .08s; }
+.tb:active, .tb.pressed { background: #ffffff18; color: #ffffff66; }
+
+#crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 8; opacity: 0.15; }
+#s-moving { color: #881111; font-size: 8px; letter-spacing: 3px; margin-top: 2px; opacity: 0; transition: opacity .1s; text-shadow: 0 0 6px #ff0000; }
+
+@keyframes low-batt { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+.low-battery { animation: low-batt 0.9s ease-in-out infinite; color: #ff3300 !important; text-shadow: 0 0 12px #ff220088 !important; }
+
+/* ── Main menu ────────────────────────────────────────────────────────────────── */
+
+#menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; z-index: 30; overflow: hidden; }
+#menu.hidden { display: none; }
+
+/* Flickering upward red light — pure CSS, zero JS, zero canvas */
+#menu-bg {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 85% 60% at 50% 115%, rgba(160,6,6,1) 0%, transparent 65%);
+  opacity: 0.19;
+  animation: menu-flicker 6.4s ease-in-out infinite;
+}
+@keyframes menu-flicker {
+  0%,100% { opacity: 0.19; }
+  6%       { opacity: 0.14; }
+  11%      { opacity: 0.22; }
+  19%      { opacity: 0.15; }
+  25%      { opacity: 0.24; }
+  34%      { opacity: 0.17; }
+  46%      { opacity: 0.20; }
+  54%      { opacity: 0.11; }
+  57%      { opacity: 0.25; }
+  68%      { opacity: 0.18; }
+  79%      { opacity: 0.14; }
+  91%      { opacity: 0.21; }
+}
+
+/* Panels stack on top of each other; only .active is visible */
+.menu-panel {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transform: translateY(10px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.menu-panel.active { opacity: 1; pointer-events: all; transform: translateY(0); }
+
+.menu-nav { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 36px; }
+
+.menu-btn {
+  background: transparent; border: 1px solid #771111; color: #bb2222;
+  font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 5px;
+  padding: 13px 0; width: clamp(200px, 36vw, 260px);
+  cursor: pointer; text-transform: uppercase; text-align: center;
+  box-shadow: 0 0 20px #77111122, inset 0 0 20px #77111111;
+  transition: all .2s; -webkit-tap-highlight-color: transparent; margin-top: 6px;
+}
+.menu-btn:hover, .menu-btn:active { background: #77111122; box-shadow: 0 0 40px #77111144; color: #dd3333; }
+
+.menu-btn--back {
+  padding: 10px 28px; width: auto; min-width: 0; font-size: 11px;
+  margin-top: 34px; border-color: #441111; color: #772222;
+}
+.menu-btn--back:hover { color: #bb2222; border-color: #771111; }
+
+.menu-panel-title {
+  font-family: 'Creepster', cursive; font-size: clamp(32px, 7vw, 50px);
+  color: #cc2222; letter-spacing: 6px;
+  text-shadow: 0 0 30px #ff000055; margin-bottom: 36px;
+}
+
+/* ── Options controls ─────────────────────────────────────────────────────────── */
+
+.opt-group { width: clamp(240px, 46vw, 340px); margin-bottom: 24px; }
+
+.opt-label { display: block; color: #662222; font-size: 10px; letter-spacing: 4px; margin-bottom: 11px; }
+
+.opt-row { display: flex; align-items: center; gap: 14px; }
+.opt-row--toggle { justify-content: flex-start; }
+
+.opt-dim { color: #331111; font-size: 9px; letter-spacing: 2px; min-width: 28px; }
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; height: 2px; background: #2a0808;
+  outline: none; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #661111, #2a0808); height: 2px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px;
+  background: #cc2222; border-radius: 0; box-shadow: 0 0 8px #ff000055; cursor: pointer;
+  margin-top: -5px;
+}
+input[type="range"]::-moz-range-track { background: linear-gradient(to right, #661111, #2a0808); height: 2px; border: none; }
+input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; background: #cc2222;
+  border: none; border-radius: 0; box-shadow: 0 0 8px #ff000055; cursor: pointer;
+}
+
+.toggle-btn {
+  background: transparent; border: 1px solid #441111; color: #662222;
+  font-family: 'Share Tech Mono', monospace; font-size: 11px; letter-spacing: 4px;
+  padding: 8px 28px; cursor: pointer; min-width: 80px; text-align: center;
+  transition: all .15s; -webkit-tap-highlight-color: transparent;
+}
+.toggle-btn[aria-pressed="true"]  { background: #550d0d; border-color: #881111; color: #ee4444; box-shadow: 0 0 14px #77111133; }
+.toggle-btn[aria-pressed="false"] { color: #441111; border-color: #2a0808; }
+
+/* ── Exit panel ───────────────────────────────────────────────────────────────── */
+
+.exit-msg { color: #442222; font-size: 11px; letter-spacing: 3px; text-align: center; line-height: 2.5; margin-top: -8px; }
