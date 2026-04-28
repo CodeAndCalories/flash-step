@@ -32,6 +32,7 @@ const shakeBtn    = document.getElementById('opt-shake');
 volSlider.value   = settings.masterVolume;
 flashSlider.value = settings.flashFade;
 syncShakeBtn();
+syncMenuControlBtn();
 
 volSlider.addEventListener('input', () => {
   settings.masterVolume = parseFloat(volSlider.value);
@@ -53,4 +54,18 @@ shakeBtn.addEventListener('click', () => {
 function syncShakeBtn() {
   shakeBtn.textContent = settings.screenshake ? 'ON' : 'OFF';
   shakeBtn.setAttribute('aria-pressed', String(settings.screenshake));
+}
+
+const controlBtn = document.getElementById('opt-controls');
+controlBtn.addEventListener('click', () => {
+  const modes = ['auto', 'mouse', 'touch'];
+  settings.controlScheme = modes[(modes.indexOf(settings.controlScheme) + 1) % modes.length];
+  syncMenuControlBtn();
+  saveSettings();
+});
+
+function syncMenuControlBtn() {
+  const labels = { auto: 'AUTO', mouse: 'MOUSE', touch: 'TOUCH' };
+  controlBtn.textContent = labels[settings.controlScheme] || 'AUTO';
+  controlBtn.setAttribute('aria-pressed', String(settings.controlScheme !== 'auto'));
 }
