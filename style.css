@@ -178,3 +178,22 @@ body.paused #dpad,
 body.paused #turn-btns,
 body.paused #flash-btn,
 body.paused #crosshair { visibility: hidden; }
+
+/* ── Mouse mode ───────────────────────────────────────────────────────────────── */
+
+/* Hide touch-only controls on PC */
+body.mouse-mode #dpad,
+body.mouse-mode #turn-btns { display: none; }
+
+/* Click-to-capture prompt */
+#mouse-prompt {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  display: none; flex-direction: column; align-items: center; gap: 5px;
+  background: rgba(0,0,0,0.72); border: 1px solid #441111;
+  padding: 10px 22px; z-index: 9; pointer-events: none;
+  color: #882222; font-size: 10px; letter-spacing: 3px; text-align: center;
+  animation: prompt-in 0.6s ease;
+}
+.prompt-sub { color: #331111; font-size: 8px; letter-spacing: 2px; }
+
+@keyframes prompt-in { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }

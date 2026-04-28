@@ -1,15 +1,17 @@
 export const settings = {
-  masterVolume: 0.8,
-  flashFade:    1.0,  // multiplier: 0.4 = slow fade, 2.0 = fast fade
-  screenshake:  true,
+  masterVolume:  0.8,
+  flashFade:     1.0,   // multiplier: 0.4 = slow fade, 2.0 = fast fade
+  screenshake:   true,
+  controlScheme: 'auto', // 'auto' | 'mouse' | 'touch'
 };
 
 // Auto-load on first import — no explicit init call needed
 try {
   const s = JSON.parse(localStorage.getItem('flashstep-settings') || '{}');
-  if (typeof s.masterVolume === 'number')  settings.masterVolume = s.masterVolume;
-  if (typeof s.flashFade    === 'number')  settings.flashFade    = s.flashFade;
-  if (typeof s.screenshake  === 'boolean') settings.screenshake  = s.screenshake;
+  if (typeof s.masterVolume  === 'number')  settings.masterVolume  = s.masterVolume;
+  if (typeof s.flashFade     === 'number')  settings.flashFade     = s.flashFade;
+  if (typeof s.screenshake   === 'boolean') settings.screenshake   = s.screenshake;
+  if (typeof s.controlScheme === 'string')  settings.controlScheme = s.controlScheme;
 } catch(e) {}
 
 export function saveSettings() {

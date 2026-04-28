@@ -5,8 +5,10 @@ import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw } from './renderer.js';
 import { stepEnemy, checkEnd, isWall } from './enemy.js';
 
-const MOVE_SPD = 3.2;
-const TURN_SPD = 2.5;
+const MOVE_SPD   = 3.2;
+const TURN_SPD   = 2.5;
+const MOUSE_SENS = 0.003;
+let   mouseDeltaX = 0;
 
 function resize() {
   state.W = state.canvas.width  = window.innerWidth;
@@ -104,21 +106,44 @@ function loop(ts) {
 
   // Movement
   const { keys, dpad, P } = state;
-  const fwd = (keys['w'] || keys['arrowup']    || dpad.fwd   ? 1 : 0)
-            - (keys['s'] || keys['arrowdown']  || dpad.back  ? 1 : 0);
-  const trn = (keys['d'] || keys['arrowright'] || dpad.turnR ? 1 : 0)
-            - (keys['a'] || keys['arrowleft']  || dpad.turnL ? 1 : 0)
-            + state.lookDelta * 0.011;
-  state.lookDelta *= 0.62;
-  P.angle += trn * TURN_SPD * dt / 1000;
+  const mouse = isMouseMode();
+
+  const fwd = (keys['w'] || keys['arrowup']   || dpad.fwd  ? 1 : 0)
+            - (keys['s'] || keys['arrowdown'] || dpad.back ? 1 : 0);
+
+  if (mouse) {
+    P.angle    += mouseDeltaX * MOUSE_SENS;
+    mouseDeltaX = 0;
+    state.lookDelta = 0;
+  } else {
+    const trn = (keys['d'] || keys['arrowright'] || dpad.turnR ? 1 : 0)
+              - (keys['a'] || keys['arrowleft']  || dpad.turnL ? 1 : 0)
+              + state.lookDelta * 0.011;
+    state.lookDelta *= 0.62;
+    P.angle += trn * TURN_SPD * dt / 1000;
+  }
+
+  // A/D strafe in mouse mode; they turn in touch/keyboard mode (handled above)
+  const strafe = mouse
+    ? (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0)
+    : 0;
 
   state.isMoving = false;
-  if (fwd !== 0) {
+  if (fwd !== 0 || strafe !== 0) {
     const spd = MOVE_SPD * dt / 1000;
-    const nx = P.x + Math.cos(P.angle) * spd * fwd;
-    const ny = P.y + Math.sin(P.angle) * spd * fwd;
-    if (!isWall(nx, P.y)) P.x = nx;
-    if (!isWall(P.x, ny)) P.y = ny;
+    if (fwd !== 0) {
+      const nx = P.x + Math.cos(P.angle) * spd * fwd;
+      const ny = P.y + Math.sin(P.angle) * spd * fwd;
+      if (!isWall(nx, P.y)) P.x = nx;
+      if (!isWall(P.x, ny)) P.y = ny;
+    }
+    if (strafe !== 0) {
+      // Perpendicular direction: right = (-sin θ, cos θ)
+      const sx = -Math.sin(P.angle) * spd * strafe;
+      const sy =  Math.cos(P.angle) * spd * strafe;
+      if (!isWall(P.x + sx, P.y)) P.x += sx;
+      if (!isWall(P.x, P.y + sy)) P.y += sy;
+    }
     state.bobTimer    += dt * 0.009;
     state.isMoving     = true;
     state.footstepTimer -= dt;
@@ -203,6 +228,9 @@ function updateUI() {
   document.getElementById('s-dist').innerHTML = `DIST<br>${state.gameState === 'playing' ? Math.round(Math.sqrt(dx * dx + dy * dy)) : '—'}`;
   const sm = document.getElementById('s-moving');
   if (sm) sm.style.opacity = state.isMoving ? '1' : '0';
+  const locked = document.pointerLockElement === state.canvas;
+  document.getElementById('mouse-prompt').style.display =
+    (isMouseMode() && state.gameState === 'playing' && !state.paused && !locked) ? 'flex' : 'none';
 }
 
 function showMsg(type) {
@@ -214,6 +242,32 @@ function showMsg(type) {
   el.classList.add('show');
   document.getElementById('retry-btn').textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
   if (type === 'win') state.level++;
+}
+
+// ── Control scheme ────────────────────────────────────────────────────────────
+
+function isMouseMode() {
+  if (settings.controlScheme === 'mouse') return true;
+  if (settings.controlScheme === 'touch') return false;
+  return !('ontouchstart' in window || navigator.maxTouchPoints > 0);
+}
+
+function applyControlScheme() {
+  const mouse = isMouseMode();
+  document.body.classList.toggle('mouse-mode', mouse);
+  if (!mouse && document.pointerLockElement) document.exitPointerLock();
+}
+
+function syncAllControlBtns() {
+  const labels = { auto: 'AUTO', mouse: 'MOUSE', touch: 'TOUCH' };
+  const label  = labels[settings.controlScheme] || 'AUTO';
+  const active = settings.controlScheme !== 'auto';
+  ['opt-controls', 'p-opt-controls'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.textContent = label;
+    btn.setAttribute('aria-pressed', String(active));
+  });
 }
 
 // ── Pause ─────────────────────────────────────────────────────────────────────
@@ -228,7 +282,9 @@ function pauseGame() {
   state.paused    = true;
   state.flashHeld = false;
   state.keys      = {};
+  mouseDeltaX     = 0;
   Object.assign(state.dpad, { fwd: false, back: false, turnL: false, turnR: false });
+  if (document.pointerLockElement) document.exitPointerLock();
   document.body.classList.add('paused');
   document.getElementById('pause-screen').classList.add('active');
   showPausePanel('pause-main');
@@ -248,6 +304,7 @@ state.ctx    = state.canvas.getContext('2d');
 resize();
 state.ctx.fillStyle = '#000';
 state.ctx.fillRect(0, 0, state.W, state.H);
+applyControlScheme();
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 
@@ -319,10 +376,28 @@ state.canvas.addEventListener('touchend', e => {
 document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 window.addEventListener('resize', resize);
 
+// ── Pointer lock (mouse mode) ─────────────────────────────────────────────────
+state.canvas.addEventListener('click', () => {
+  if (isMouseMode() && state.gameState === 'playing' && !state.paused)
+    state.canvas.requestPointerLock();
+});
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement === state.canvas && !state.paused)
+    mouseDeltaX += e.movementX;
+});
+document.addEventListener('pointerlockchange', () => {
+  // If pointer lock is unexpectedly lost mid-game, pause
+  if (!document.pointerLockElement && isMouseMode() &&
+      state.gameState === 'playing' && !state.paused)
+    pauseGame();
+});
+document.addEventListener('pointerlockerror', () => {});  // silence errors
+
 document.getElementById('start-btn').addEventListener('click', () => {
   state.level = 1; getAudio();
   document.getElementById('menu').classList.add('hidden');
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
+  applyControlScheme();
   startAmbient(); startExitHum();
   state.frameId = requestAnimationFrame(loop);
 });
@@ -330,6 +405,7 @@ document.getElementById('start-btn').addEventListener('click', () => {
 document.getElementById('retry-btn').addEventListener('click', () => {
   document.getElementById('msgscreen').classList.remove('show');
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
+  applyControlScheme();
   startAmbient(); startExitHum();
 });
 
@@ -341,6 +417,7 @@ document.getElementById('pause-options-btn').addEventListener('click', () => {
   document.getElementById('p-opt-volume').value = settings.masterVolume;
   document.getElementById('p-opt-flash').value  = settings.flashFade;
   syncPauseShake();
+  syncAllControlBtns();
   showPausePanel('pause-opts');
 });
 
@@ -377,4 +454,12 @@ function syncPauseShake() {
   btn.textContent = settings.screenshake ? 'ON' : 'OFF';
   btn.setAttribute('aria-pressed', String(settings.screenshake));
 }
+
+document.getElementById('p-opt-controls').addEventListener('click', () => {
+  const modes = ['auto', 'mouse', 'touch'];
+  settings.controlScheme = modes[(modes.indexOf(settings.controlScheme) + 1) % modes.length];
+  syncAllControlBtns();
+  applyControlScheme();
+  saveSettings();
+});
 
