@@ -317,18 +317,6 @@ function applyControlScheme() {
   if (!mouse && document.pointerLockElement) document.exitPointerLock();
 }
 
-function syncAllControlBtns() {
-  const labels = { auto: 'AUTO', mouse: 'MOUSE', touch: 'TOUCH' };
-  const label  = labels[settings.controlScheme] || 'AUTO';
-  const active = settings.controlScheme !== 'auto';
-  ['opt-controls', 'p-opt-controls'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    btn.textContent = label;
-    btn.setAttribute('aria-pressed', String(active));
-  });
-}
-
 // ── Pause ─────────────────────────────────────────────────────────────────────
 
 function showPausePanel(id) {
@@ -452,14 +440,19 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('pointerlockerror', () => {});  // silence errors
 
-document.getElementById('start-btn').addEventListener('click', () => {
+function startGame(scheme) {
+  settings.controlScheme = scheme;
+  saveSettings();
   state.level = 1; getAudio();
   document.getElementById('menu').classList.add('hidden');
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
   applyControlScheme();
   startAmbient(); startExitHum();
   state.frameId = requestAnimationFrame(loop);
-});
+}
+
+document.getElementById('btn-pc').addEventListener('click',     () => startGame('mouse'));
+document.getElementById('btn-mobile').addEventListener('click', () => startGame('touch'));
 
 document.getElementById('retry-btn').addEventListener('click', () => {
   document.getElementById('msgscreen').classList.remove('show');
@@ -476,7 +469,6 @@ document.getElementById('pause-options-btn').addEventListener('click', () => {
   document.getElementById('p-opt-volume').value = settings.masterVolume;
   document.getElementById('p-opt-flash').value  = settings.flashFade;
   syncPauseShake();
-  syncAllControlBtns();
   showPausePanel('pause-opts');
 });
 
@@ -514,11 +506,4 @@ function syncPauseShake() {
   btn.setAttribute('aria-pressed', String(settings.screenshake));
 }
 
-document.getElementById('p-opt-controls').addEventListener('click', () => {
-  const modes = ['auto', 'mouse', 'touch'];
-  settings.controlScheme = modes[(modes.indexOf(settings.controlScheme) + 1) % modes.length];
-  syncAllControlBtns();
-  applyControlScheme();
-  saveSettings();
-});
 

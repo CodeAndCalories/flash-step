@@ -26,13 +26,17 @@
     <div class="title">THE<br>FLASH-STEP</div>
     <div class="subtitle">Every time you look —<br>it takes a step closer.<br>Find the green wall. Don't look too much.</div>
     <nav class="menu-nav">
-      <button class="menu-btn" id="start-btn">ENTER THE DARK</button>
-      <button class="menu-btn" id="btn-options">OPTIONS</button>
-      <button class="menu-btn" id="btn-exit">EXIT</button>
+      <button class="menu-btn platform-btn" id="btn-pc">🖥&nbsp; PLAY ON PC</button>
+      <button class="menu-btn platform-btn" id="btn-mobile">📱&nbsp; PLAY ON MOBILE</button>
+    </nav>
+    <div class="menu-sep"></div>
+    <nav class="menu-nav">
+      <button class="menu-btn menu-btn--sm" id="btn-options">OPTIONS</button>
+      <button class="menu-btn menu-btn--sm" id="btn-exit">EXIT</button>
     </nav>
     <div class="hint">
-      ↑↓ MOVE &nbsp;·&nbsp; ↺↻ or ← → TURN<br>
-      SPACE / FLASH BUTTON to illuminate<br>
+      PC: WASD · MOUSE LOOK · SPACE TO FLASH<br>
+      MOBILE: DPAD · TURN BUTTONS · FLASH BUTTON<br>
       FIRST FLASH shows a map · LISTEN for heartbeat
     </div>
   </div>
@@ -60,12 +64,6 @@
       <label class="opt-label">SCREEN SHAKE</label>
       <div class="opt-row opt-row--toggle">
         <button class="toggle-btn" id="opt-shake" aria-pressed="true">ON</button>
-      </div>
-    </div>
-    <div class="opt-group">
-      <label class="opt-label">CONTROLS</label>
-      <div class="opt-row opt-row--toggle">
-        <button class="toggle-btn" id="opt-controls" aria-pressed="false">AUTO</button>
       </div>
     </div>
     <button class="menu-btn menu-btn--back" id="btn-opts-back">← BACK</button>
@@ -113,12 +111,6 @@
       <label class="opt-label">SCREEN SHAKE</label>
       <div class="opt-row opt-row--toggle">
         <button class="toggle-btn" id="p-opt-shake" aria-pressed="true">ON</button>
-      </div>
-    </div>
-    <div class="opt-group">
-      <label class="opt-label">CONTROLS</label>
-      <div class="opt-row opt-row--toggle">
-        <button class="toggle-btn" id="p-opt-controls" aria-pressed="false">AUTO</button>
       </div>
     </div>
     <button class="menu-btn menu-btn--back" id="pause-opts-back">← BACK</button>
