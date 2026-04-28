@@ -1,6 +1,6 @@
 import { state } from './state.js';
-import { settings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum } from './audio.js';
+import { settings, saveSettings } from './settings.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw } from './renderer.js';
 import { stepEnemy, checkEnd, isWall } from './enemy.js';
@@ -84,6 +84,7 @@ function loop(ts) {
     return;
   }
 
+  if (state.paused)                  { state.frameId = requestAnimationFrame(loop); return; }
   if (state.gameState !== 'playing') { state.frameId = requestAnimationFrame(loop); return; }
 
   // Flash — two-stage fade
@@ -215,6 +216,32 @@ function showMsg(type) {
   if (type === 'win') state.level++;
 }
 
+// ── Pause ─────────────────────────────────────────────────────────────────────
+
+function showPausePanel(id) {
+  document.querySelectorAll('.pause-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function pauseGame() {
+  if (state.gameState !== 'playing') return;
+  state.paused    = true;
+  state.flashHeld = false;
+  state.keys      = {};
+  Object.assign(state.dpad, { fwd: false, back: false, turnL: false, turnR: false });
+  document.body.classList.add('paused');
+  document.getElementById('pause-screen').classList.add('active');
+  showPausePanel('pause-main');
+  suspendAudio();
+}
+
+function resumeGame() {
+  state.paused = false;
+  document.body.classList.remove('paused');
+  document.getElementById('pause-screen').classList.remove('active');
+  resumeAudio();
+}
+
 // ── Bootstrap — must run before event listeners reference state.canvas ────────
 state.canvas = document.getElementById('c');
 state.ctx    = state.canvas.getContext('2d');
@@ -233,6 +260,18 @@ function startFlash() {
 function stopFlash() { state.flashHeld = false; }
 
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (state.paused) {
+      // Escape inside pause-options goes back a level; otherwise fully resumes
+      document.getElementById('pause-opts').classList.contains('active')
+        ? showPausePanel('pause-main')
+        : resumeGame();
+    } else if (state.gameState === 'playing') {
+      pauseGame();
+    }
+    return;
+  }
   state.keys[e.key.toLowerCase()] = true;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) e.preventDefault();
   if (e.key === ' ') startFlash();
@@ -293,4 +332,49 @@ document.getElementById('retry-btn').addEventListener('click', () => {
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
   startAmbient(); startExitHum();
 });
+
+// ── Pause panel buttons ────────────────────────────────────────────────────────
+
+document.getElementById('pause-resume').addEventListener('click', resumeGame);
+
+document.getElementById('pause-options-btn').addEventListener('click', () => {
+  document.getElementById('p-opt-volume').value = settings.masterVolume;
+  document.getElementById('p-opt-flash').value  = settings.flashFade;
+  syncPauseShake();
+  showPausePanel('pause-opts');
+});
+
+document.getElementById('pause-opts-back').addEventListener('click', () => showPausePanel('pause-main'));
+
+document.getElementById('pause-quit').addEventListener('click', () => {
+  stopAmbient(); stopExitHum();
+  resumeGame();                      // clears paused state + unsuspends audio
+  state.gameState = 'menu';
+  state.level     = 1;
+  document.getElementById('menu').classList.remove('hidden');
+  document.querySelectorAll('.menu-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('menu-main').classList.add('active');
+});
+
+// Pause options controls — same settings object, different element IDs
+document.getElementById('p-opt-volume').addEventListener('input', e => {
+  settings.masterVolume = parseFloat(e.target.value);
+  setMasterVolume(settings.masterVolume);
+  saveSettings();
+});
+document.getElementById('p-opt-flash').addEventListener('input', e => {
+  settings.flashFade = parseFloat(e.target.value);
+  saveSettings();
+});
+document.getElementById('p-opt-shake').addEventListener('click', () => {
+  settings.screenshake = !settings.screenshake;
+  syncPauseShake();
+  saveSettings();
+});
+
+function syncPauseShake() {
+  const btn = document.getElementById('p-opt-shake');
+  btn.textContent = settings.screenshake ? 'ON' : 'OFF';
+  btn.setAttribute('aria-pressed', String(settings.screenshake));
+}
 

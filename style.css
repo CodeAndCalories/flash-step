@@ -142,3 +142,39 @@ input[type="range"]::-moz-range-thumb {
 /* ── Exit panel ───────────────────────────────────────────────────────────────── */
 
 .exit-msg { color: #442222; font-size: 11px; letter-spacing: 3px; text-align: center; line-height: 2.5; margin-top: -8px; }
+
+/* ── Pause screen ─────────────────────────────────────────────────────────────── */
+
+#pause-screen {
+  position: fixed; inset: 0;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.80);
+  z-index: 20;
+  overflow: hidden;
+}
+#pause-screen.active { display: flex; }
+
+.pause-panel {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transform: translateY(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.pause-panel.active { opacity: 1; pointer-events: all; transform: translateY(0); }
+
+.pause-title {
+  font-family: 'Creepster', cursive;
+  font-size: clamp(48px, 10vw, 78px);
+  color: #cc2222; letter-spacing: 8px;
+  text-shadow: 0 0 40px #ff000044;
+  margin-bottom: 40px;
+}
+
+/* Hide all HUD and touch controls while paused */
+body.paused #ui,
+body.paused #dpad,
+body.paused #turn-btns,
+body.paused #flash-btn,
+body.paused #crosshair { visibility: hidden; }
