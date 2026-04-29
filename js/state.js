@@ -85,5 +85,7 @@ export const state = {
   // Extra stalkers (level 9+)
   extraStalkers:    [],
   extraSpawnTimer:  0,
-  spawnWarning:     null,
+  spawnWarning:         null,
+  flashTooltipTimer:    0,
+  limitedWarningTimer:  0,
 };
