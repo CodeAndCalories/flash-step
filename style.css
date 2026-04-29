@@ -229,13 +229,42 @@ input[type="range"]::-moz-range-thumb {
   color: #dd2222; letter-spacing: 8px;
   text-shadow: 0 0 50px #ff000044, 0 0 100px #ff000022;
   line-height: 1;
+  transform-origin: center;
+}
+.li-type.li-slam {
+  animation: li-slam 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+@keyframes li-slam {
+  0%   { transform: scale(1.55); opacity: 0; }
+  55%  { transform: scale(0.96); opacity: 1; }
+  78%  { transform: scale(1.03); }
+  100% { transform: scale(1);    opacity: 1; }
+}
+.li-flavor {
+  font-size: 12px; letter-spacing: 3px; color: #aa2222;
+  font-style: italic; margin-top: 10px; margin-bottom: 2px;
+  text-shadow: 0 0 8px #ff000044; opacity: 0;
+}
+.li-flavor.li-flavor-in {
+  animation: li-flavor-in 0.38s ease 0.30s both;
+}
+@keyframes li-flavor-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .li-sub {
   font-size: 11px; letter-spacing: 4px; color: #664444;
-  text-transform: uppercase; margin-top: 14px;
+  text-transform: uppercase; margin-top: 8px;
 }
 .li-cycle {
   font-size: 9px; letter-spacing: 3px; color: #442222; margin-top: 6px;
+}
+
+/* SILENCE HUD label and spawn type flash */
+#s-silence { color: #445544; font-size: 9px; letter-spacing: 3px; margin-top: 2px; }
+.stat-spawn-type {
+  color: #ff8800; font-size: 10px; letter-spacing: 4px; margin-top: 1px;
+  animation: warn-pulse 0.22s ease-in-out infinite;
 }
 
 @keyframes warn-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }

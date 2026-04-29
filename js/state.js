@@ -54,8 +54,11 @@ export const state = {
   historyTimer:    0,
   M:               { x: 1.5, y: 1.5, active: false, moveTimer: 0 },
   mimicSoundTimer: 0,
-  afterimage:      null,
-  lastKnownEnemy:  null,
+  afterimages:  [],
+  lastKnownE:   null,
+  lastKnownM:   null,
+  lastKnownB:   null,
+  killedBy:     null,
   // Notes
   note:            null,
   noteCollected:   false,

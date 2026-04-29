@@ -32,6 +32,19 @@ const TYPE_SUBS   = {
   SILENCE:  'BLIND ONE · NO HEARTBEAT',
   GAUNTLET: 'ALL ENEMIES',
 };
+const FLAVOR_TEXT = {
+  HUNT:     "It knows you're here.",
+  ECHO:     "It remembers your path.",
+  SILENCE:  "Don't make a sound.",
+  GAUNTLET: "They're all here.",
+};
+const DEATH_MSGS = {
+  stalker:       { title: 'FOUND',      sub: 'It never stopped moving.' },
+  mimic:         { title: 'ECHOED',     sub: 'You led it right to yourself.' },
+  blindone:      { title: 'HEARD',      sub: 'You should have stayed still.' },
+  cursed:        { title: 'BETRAYED',   sub: 'The camera chose its side.' },
+  extra_stalker: { title: 'SURROUNDED', sub: 'There were too many.' },
+};
 const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0 };
 
 function getLevelInfo(level) {
@@ -153,7 +166,8 @@ function initGame() {
   state.playerHistory   = []; state.historyTimer = 0;
   state.M               = { x: 1.5, y: 1.5, active: false, moveTimer: 0 };
   state.mimicSoundTimer  = 0;
-  state.afterimage      = null; state.lastKnownEnemy = null;
+  state.afterimages     = []; state.lastKnownE = null; state.lastKnownM = null; state.lastKnownB = null;
+  state.killedBy        = null;
   state.lastHeardPos    = null; state.blindSoundTimer = 0;
   state.noteCollected   = false; state.noteDisplay = null;
   state.batCooldown     = 5000; state.bat = null; state.rat = null;
@@ -269,10 +283,11 @@ function loop(ts) {
     state.ENEMY_MS = state.cursedEnemyTimer > 0 ? 150 : state.baseEnemyMS;
   }
 
-  // Snapshot enemy on flash release → afterimage
-  if (prevFlashHeld && !state.flashHeld && state.lastKnownEnemy) {
-    state.afterimage     = { ...state.lastKnownEnemy, alpha: 0.15 };
-    state.lastKnownEnemy = null;
+  // Snapshot all visible enemies on flash release → afterimages (no eyes, with grain)
+  if (prevFlashHeld && !state.flashHeld) {
+    if (state.lastKnownE) { state.afterimages.push({ ...state.lastKnownE, alpha: 0.12, maxAlpha: 0.12 }); state.lastKnownE = null; }
+    if (state.lastKnownM) { state.afterimages.push({ ...state.lastKnownM, alpha: 0.08, maxAlpha: 0.08 }); state.lastKnownM = null; }
+    if (state.lastKnownB) { state.afterimages.push({ ...state.lastKnownB, alpha: 0.10, maxAlpha: 0.10 }); state.lastKnownB = null; }
   }
 
   // Movement
@@ -555,14 +570,13 @@ function loop(ts) {
   }
 
   // Afterimage alpha decay
-  if (state.afterimage) {
-    state.afterimage.alpha -= dt / 3500;
-    if (state.afterimage.alpha <= 0) state.afterimage = null;
-  }
+  for (const ai of state.afterimages) ai.alpha -= dt / 3000;
+  state.afterimages = state.afterimages.filter(ai => ai.alpha > 0);
 
   const result = checkEnd();
   if (result) {
     state.gameState = result; state.flashHeld = false;
+    if (result === 'dead' && state.cursedFlash) state.killedBy = 'cursed';
     stopAmbient(); stopExitHum(); resetPanicAudio();
     if (result === 'dead') {
       state.jumpScareTimer = 1.0;
@@ -621,15 +635,30 @@ function updateUI() {
         state.noteDisplay.text.substring(0, state.noteDisplay.chars);
     } else noteEl.style.display = 'none';
   }
-  // Notes counter (appears after first note)
+  // Notes counter — "X/Y" format (collected / levels played)
   const sNotes = document.getElementById('s-notes');
-  if (sNotes) sNotes.textContent = state.collectedNotes.length > 0 ? `NOTES: ${state.collectedNotes.length}` : '';
+  if (sNotes) {
+    const n = state.collectedNotes.length;
+    sNotes.textContent = (n > 0 || state.level > 1) ? `📄 ${n}/${state.level}` : '';
+  }
+  // SILENCE level warning (explains missing heartbeat)
+  const sSilence = document.getElementById('s-silence');
+  if (sSilence) sSilence.style.display =
+    (state.levelType === 'SILENCE' && state.gameState === 'playing') ? 'block' : 'none';
   // Cursed flash warning
   const sCursed = document.getElementById('s-cursed');
   if (sCursed) sCursed.style.display = state.cursedFlash ? 'block' : 'none';
-  // Spawn warning
+  // Spawn warning + level type flash in orange
   const sSpawned = document.getElementById('s-spawned');
-  if (sSpawned) sSpawned.style.display = state.spawnWarning ? 'block' : 'none';
+  if (sSpawned) {
+    sSpawned.style.display = state.spawnWarning ? 'block' : 'none';
+    if (state.spawnWarning) sSpawned.textContent = `ANOTHER ONE`;
+  }
+  const sTypeSpawn = document.getElementById('s-type-spawn');
+  if (sTypeSpawn) {
+    sTypeSpawn.style.display = state.spawnWarning ? 'block' : 'none';
+    if (state.spawnWarning) sTypeSpawn.textContent = state.levelType;
+  }
   // Level 1 flash tooltip
   const tipEl = document.getElementById('flash-tooltip');
   if (tipEl) {
@@ -655,9 +684,12 @@ function updateUI() {
 function showMsg(type) {
   const el = document.getElementById('msgscreen');
   el.className = type;
-  el.querySelector('.msg-title').textContent = type === 'dead' ? 'CAUGHT' : 'ESCAPED';
+  const dm = type === 'dead'
+    ? (DEATH_MSGS[state.killedBy] || { title: 'CAUGHT', sub: 'It was waiting for you.' })
+    : null;
+  el.querySelector('.msg-title').textContent = type === 'dead' ? dm.title : 'ESCAPED';
   el.querySelector('.msg-sub').textContent   = type === 'dead'
-    ? 'IT WAS WAITING FOR YOU'
+    ? dm.sub
     : `${state.levelType} COMPLETE · LEVEL ${state.level}`;
   el.querySelector('.msg-info').textContent  = state.flashCount === Infinity
     ? `LEVEL ${state.level}`
@@ -673,13 +705,21 @@ function showLevelIntro() {
   const el = document.getElementById('level-intro');
   if (!el) return;
   const info = getLevelInfo(state.level);
-  el.querySelector('.li-level').textContent = `LEVEL ${state.level}`;
-  el.querySelector('.li-type').textContent  = info.type;
-  el.querySelector('.li-sub').textContent   = TYPE_SUBS[info.type];
-  el.querySelector('.li-cycle').textContent = info.cycle > 0 ? `CYCLE ${info.cycle}` : '';
+  el.querySelector('.li-level').textContent  = `LEVEL ${state.level}`;
+  el.querySelector('.li-sub').textContent    = TYPE_SUBS[info.type];
+  el.querySelector('.li-flavor').textContent = FLAVOR_TEXT[info.type] || '';
+  el.querySelector('.li-cycle').textContent  = info.cycle > 0 ? `CYCLE ${info.cycle}` : '';
   el.style.transition = 'none';
   el.style.opacity    = '1';
   el.style.display    = 'flex';
+  // Restart type slam + flavor fade-in each level
+  const typeEl   = el.querySelector('.li-type');
+  const flavorEl = el.querySelector('.li-flavor');
+  typeEl.textContent = info.type;
+  typeEl.classList.remove('li-slam');   void typeEl.offsetHeight;
+  typeEl.classList.add('li-slam');
+  flavorEl.classList.remove('li-flavor-in'); void flavorEl.offsetHeight;
+  flavorEl.classList.add('li-flavor-in');
   clearTimeout(el._ft);
   el._ft = setTimeout(() => {
     el.style.transition = 'opacity 0.8s ease';
