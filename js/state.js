@@ -91,4 +91,8 @@ export const state = {
   spawnWarning:         null,
   flashTooltipTimer:    0,
   limitedWarningTimer:  0,
+  flashesUsedThisLevel: 0,
+  winLevel:             0,
+  winType:              '',
+  winFlashes:           0,
 };
