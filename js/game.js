@@ -22,6 +22,25 @@ function getNoteText(lvl) {
   return lvl > NOTE_TEXTS.length ? `[Page ${lvl}]\n${NOTE_TEXTS[idx]}` : NOTE_TEXTS[idx];
 }
 
+// ── Level type cycle ──────────────────────────────────────────────────────────
+// Levels 1-2: always HUNT. From level 3: 4-step cycle ECHO→SILENCE→GAUNTLET→HUNT.
+// Each completed cycle (every 4 levels) adds 8 % enemy speed and +2 maze cells.
+const CYCLE_TYPES = ['ECHO', 'SILENCE', 'GAUNTLET', 'HUNT'];
+const TYPE_SUBS   = {
+  HUNT:     'STALKER ONLY · SMALL MAZE',
+  ECHO:     'MIMIC ONLY · LARGE MAZE',
+  SILENCE:  'BLIND ONE · NO HEARTBEAT',
+  GAUNTLET: 'ALL ENEMIES',
+};
+const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0 };
+
+function getLevelInfo(level) {
+  if (level <= 2) return { type: 'HUNT', cycle: 0 };
+  const cycle = Math.floor((level - 3) / 4) + 1;  // 1, 1, 1, 1, 2, 2, ...
+  const idx   = (level - 3) % 4;                   // 0=ECHO 1=SILENCE 2=GAUNTLET 3=HUNT
+  return { type: CYCLE_TYPES[idx], cycle };
+}
+
 const MOVE_SPD   = 3.2;
 const TURN_SPD   = 2.5;
 const MOUSE_SENS = 0.003;
@@ -34,7 +53,12 @@ function resize() {
 
 function initGame() {
   resize();
-  const sz = Math.min(9 + state.level * 2, 29);
+  const { type, cycle }  = getLevelInfo(state.level);
+  state.levelType         = type;
+  const useStalker        = type === 'HUNT' || type === 'GAUNTLET';
+  const useBlind          = type === 'SILENCE' || type === 'GAUNTLET';
+  const cycleBonus        = Math.max(0, cycle - 1) * 2;
+  const sz = Math.max(9, Math.min(9 + state.level * 2 + cycleBonus + TYPE_MAZE_MOD[type], 35));
   const s  = sz % 2 === 0 ? sz + 1 : sz;
   const { g, cols, rows } = genMaze(s, s);
   state.MAP = g; state.COLS = cols; state.ROWS = rows;
@@ -58,11 +82,16 @@ function initGame() {
   }
   shuf(cands);
   const [ec, er] = cands[Math.random() * Math.min(cands.length, Math.max(1, cands.length * 0.2)) | 0];
-  state.E.x = ec + 0.5; state.E.y = er + 0.5; state.E.moveTimer = 0;
+  // Stalker active only in HUNT and GAUNTLET
+  state.E.active    = useStalker;
+  state.E.x         = useStalker ? ec + 0.5 : -5;
+  state.E.y         = useStalker ? er + 0.5 : -5;
+  state.E.moveTimer = 0;
 
-  // Speed scales 5 % faster each level after level 3
-  const speedMult   = state.level > 3 ? Math.pow(0.95, state.level - 3) : 1.0;
-  state.ENEMY_MS    = Math.max(150, Math.round((1100 - state.level * 80) * speedMult));
+  // Speed: 5 % per level after 3, plus 8 % per completed cycle
+  const lvlMult     = state.level > 3 ? Math.pow(0.95, state.level - 3) : 1.0;
+  const cycleMult   = cycle > 0 ? Math.pow(0.92, Math.max(0, cycle - 1)) : 1.0;
+  state.ENEMY_MS    = Math.max(150, Math.round((1100 - state.level * 80) * lvlMult * cycleMult));
   state.baseEnemyMS = state.ENEMY_MS;
 
   // Spawn battery pickups on random open floor cells
@@ -80,14 +109,7 @@ function initGame() {
   state.note = restCells.length > 0 ? { x: restCells[0][0] + 0.5, y: restCells[0][1] + 0.5 } : null;
   state.webs = restCells.slice(1, 4).map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, hit: false }));
 
-  // Enemy activation per level bracket
-  // 1-2: Stalker only | 3-4: +Mimic | 5-6: +Blind One (Mimic absent) | 7+: all three
-  const useMimic = (state.level >= 3 && state.level <= 4) || state.level >= 7;
-  const useBlind = state.level >= 5;
-
-  if (!useMimic) state.M = { x: 0, y: 0, active: false, moveTimer: 0 };
-
-  // Blind One — spawn at cell farthest from main enemy
+  // Blind One — spawn at cell farthest from Stalker's reference position
   if (useBlind) {
     const bpass = (c, r) => state.MAP[r][c] !== 1;
     const bdm = bfs(bpass, cols, rows, ec | 0, er | 0);
@@ -105,9 +127,9 @@ function initGame() {
     state.B = { x: 0, y: 0, active: false, moveTimer: 0, lostTimer: 0 };
   }
 
-  // Extra stalkers (level 9+)
+  // Extra stalkers — GAUNTLET only, level 9+
   state.extraStalkers  = [];
-  state.extraSpawnTimer = state.level >= 9 ? 45000 : 0;
+  state.extraSpawnTimer = (state.level >= 9 && type === 'GAUNTLET') ? 45000 : 0;
 
   // Place decoy eyes in dead ends far from the player start
   const deadEnds = findDeadEnds(state.MAP, cols, rows);
@@ -139,6 +161,7 @@ function initGame() {
   state.cursedDrainAccum = 0;   state.cursedEnemyTimer = 0;
   state.spawnWarning    = null;
   resetPanicAudio();
+  showLevelIntro();
   updateUI();
 }
 
@@ -437,16 +460,16 @@ function loop(ts) {
     }
   }
 
-  // Enemy moves only while flash is on
-  if (state.flashAlpha > 0.04) {
+  // Stalker moves only when active and flash is on
+  if (state.E.active && state.flashAlpha > 0.04) {
     if (!state.firstFlashDone) { state.firstFlashDone = true; state.minimapTimer = 4; }
     state.E.moveTimer += dt;
     while (state.E.moveTimer >= state.ENEMY_MS) { state.E.moveTimer -= state.ENEMY_MS; stepEnemy(); }
   }
   if (state.minimapTimer > 0) state.minimapTimer -= dt / 1000;
 
-  // Extra stalkers (level 9+) — spawn + move
-  if (state.level >= 9) {
+  // Extra stalkers — GAUNTLET only, level 9+
+  if (state.level >= 9 && state.levelType === 'GAUNTLET') {
     if (state.extraStalkers.length < 3) {
       state.extraSpawnTimer -= dt;
       if (state.extraSpawnTimer <= 0) {
@@ -476,8 +499,8 @@ function loop(ts) {
   }
   if (state.spawnWarning) { state.spawnWarning.timer -= dt; if (state.spawnWarning.timer <= 0) state.spawnWarning = null; }
 
-  // Player history recording + Mimic path-following (level 3+)
-  if (state.level >= 3) {
+  // Mimic path-following — only active in ECHO and GAUNTLET types
+  if (state.levelType === 'ECHO' || state.levelType === 'GAUNTLET') {
     state.historyTimer += dt;
     while (state.historyTimer >= 500) {
       state.historyTimer -= 500;
@@ -503,14 +526,16 @@ function loop(ts) {
     }
   }
 
-  // Heartbeat — rate scales with proximity
-  const pd = Math.sqrt((P.x - state.E.x) ** 2 + (P.y - state.E.y) ** 2);
-  const hbRate = pd < 2 ? 3.2 : pd < 3.5 ? 2.2 : pd < 6 ? 1.4 : 0;
-  if (hbRate > 0) {
-    state.heartbeatTimer -= dt;
-    if (state.heartbeatTimer <= 0) { playHeartbeat(hbRate); state.heartbeatTimer = Math.max(280, 950 / hbRate); }
-  } else {
-    state.heartbeatTimer = 0;
+  // Heartbeat — Stalker proximity; suppressed entirely in SILENCE
+  const pd = state.E.active
+    ? Math.sqrt((P.x - state.E.x) ** 2 + (P.y - state.E.y) ** 2)
+    : Infinity;
+  if (state.levelType !== 'SILENCE' && state.E.active) {
+    const hbRate = pd < 2 ? 3.2 : pd < 3.5 ? 2.2 : pd < 6 ? 1.4 : 0;
+    if (hbRate > 0) {
+      state.heartbeatTimer -= dt;
+      if (state.heartbeatTimer <= 0) { playHeartbeat(hbRate); state.heartbeatTimer = Math.max(280, 950 / hbRate); }
+    } else { state.heartbeatTimer = 0; }
   }
 
   // Mimic proximity ping — high ethereal tone, distinct from heartbeat
@@ -576,6 +601,8 @@ function updateUI() {
   flashEl.classList.toggle('low-battery',    state.flashCount <= 2 && state.gameState === 'playing' && !state.flashHeld);
   flashEl.classList.toggle('flash-draining', state.flashHeld && state.flashHeldMs > 1000 && state.flashCount > 0);
   document.getElementById('s-level').textContent = `LEVEL: ${state.level}`;
+  const sType = document.getElementById('s-type');
+  if (sType) sType.textContent = state.levelType || '';
   const dx = state.P.x - (state.COLS - 1.5), dy = state.P.y - (state.ROWS - 1.5);
   const distVal = state.gameState === 'playing' ? Math.round(Math.sqrt(dx * dx + dy * dy)) : '—';
   document.getElementById('s-dist').textContent = isMouseMode() ? `STEPS TO EXIT: ${distVal}` : `DIST: ${distVal}`;
@@ -618,11 +645,34 @@ function showMsg(type) {
   const el = document.getElementById('msgscreen');
   el.className = type;
   el.querySelector('.msg-title').textContent = type === 'dead' ? 'CAUGHT' : 'ESCAPED';
-  el.querySelector('.msg-sub').textContent   = type === 'dead' ? 'IT WAS WAITING FOR YOU' : `LEVEL ${state.level} COMPLETE`;
+  el.querySelector('.msg-sub').textContent   = type === 'dead'
+    ? 'IT WAS WAITING FOR YOU'
+    : `${state.levelType} COMPLETE · LEVEL ${state.level}`;
   el.querySelector('.msg-info').textContent  = `BATTERIES LEFT: ${state.flashCount}  ·  LEVEL ${state.level}`;
   el.classList.add('show');
   document.getElementById('retry-btn').textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
   if (type === 'win') state.level++;
+}
+
+// ── Level intro card ──────────────────────────────────────────────────────────
+
+function showLevelIntro() {
+  const el = document.getElementById('level-intro');
+  if (!el) return;
+  const info = getLevelInfo(state.level);
+  el.querySelector('.li-level').textContent = `LEVEL ${state.level}`;
+  el.querySelector('.li-type').textContent  = info.type;
+  el.querySelector('.li-sub').textContent   = TYPE_SUBS[info.type];
+  el.querySelector('.li-cycle').textContent = info.cycle > 0 ? `CYCLE ${info.cycle}` : '';
+  el.style.transition = 'none';
+  el.style.opacity    = '1';
+  el.style.display    = 'flex';
+  clearTimeout(el._ft);
+  el._ft = setTimeout(() => {
+    el.style.transition = 'opacity 0.8s ease';
+    el.style.opacity    = '0';
+    setTimeout(() => { el.style.display = 'none'; }, 820);
+  }, 1900);
 }
 
 // ── Control scheme ────────────────────────────────────────────────────────────

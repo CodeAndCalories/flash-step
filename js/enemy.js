@@ -87,7 +87,7 @@ export function stepEntity(ent) {
 
 export function checkEnd() {
   const { P, E, M, B, MAP } = state;
-  if (Math.sqrt((P.x - E.x) ** 2 + (P.y - E.y) ** 2) < 0.52) return 'dead';
+  if (E.active && Math.sqrt((P.x - E.x) ** 2 + (P.y - E.y) ** 2) < 0.52) return 'dead';
   if (M.active && Math.sqrt((P.x - M.x) ** 2 + (P.y - M.y) ** 2) < 0.52) return 'dead';
   if (B.active && Math.sqrt((P.x - B.x) ** 2 + (P.y - B.y) ** 2) < 0.52) return 'dead';
   for (const es of state.extraStalkers)

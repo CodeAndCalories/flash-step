@@ -203,6 +203,33 @@ input[type="range"]::-moz-range-thumb {
 /* ── HUD notes counter ────────────────────────────────────────────────────────── */
 
 #s-notes { color: #664422; font-size: 8px; letter-spacing: 2px; margin-top: 2px; }
+#s-type  { color: #553333; font-size: 8px; letter-spacing: 3px; margin-top: 1px; opacity: 0.7; }
+
+/* ── Level intro card ─────────────────────────────────────────────────────────── */
+
+#level-intro {
+  position: fixed; inset: 0; z-index: 22; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.62);
+}
+.li-level {
+  font-size: 11px; letter-spacing: 5px; color: #882222;
+  text-shadow: 0 0 8px #ff000044; margin-bottom: 10px;
+}
+.li-type {
+  font-family: 'Creepster', cursive;
+  font-size: clamp(52px, 13vw, 94px);
+  color: #dd2222; letter-spacing: 8px;
+  text-shadow: 0 0 50px #ff000044, 0 0 100px #ff000022;
+  line-height: 1;
+}
+.li-sub {
+  font-size: 11px; letter-spacing: 4px; color: #664444;
+  text-transform: uppercase; margin-top: 14px;
+}
+.li-cycle {
+  font-size: 9px; letter-spacing: 3px; color: #442222; margin-top: 6px;
+}
 
 @keyframes warn-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
 .stat-warn {
