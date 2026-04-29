@@ -94,8 +94,8 @@ function initGame() {
   state.ENEMY_MS    = Math.max(150, Math.round((1100 - state.level * 80) * lvlMult * cycleMult));
   state.baseEnemyMS = state.ENEMY_MS;
 
-  // Spawn battery pickups on random open floor cells
-  const numBatteries = Math.min(3 + Math.floor(state.level / 2), 7);
+  // Battery pickups — not spawned on levels 1-3 (unlimited flash)
+  const numBatteries = state.level >= 4 ? Math.min(3 + Math.floor(state.level / 2), 7) : 0;
   const exclude = new Set([`1,1`, `${gc},${gr}`, `${ec | 0},${er | 0}`]);
   const openCells = [];
   for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++)
@@ -140,7 +140,9 @@ function initGame() {
     .slice(0, numDecoys)
     .map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, phase: Math.random() * Math.PI * 2 }));
 
-  state.flashCount = 8; state.flashHeld = false; state.flashAlpha = 0;
+  // Levels 1-3: unlimited flash (Infinity lets battery checks short-circuit naturally)
+  state.flashCount = state.level <= 3 ? Infinity : 8;
+  state.flashHeld = false; state.flashAlpha = 0;
   state.flashDecay = 0; state.outlineAlpha = 0; state.flashHeldMs = 0;
   state.bobTimer = 0; state.isMoving = false; state.footstepTimer = 0;
   state.heartbeatTimer = 0; state.shakeX = 0; state.shakeY = 0; state.shakeAmt = 0;
@@ -159,7 +161,9 @@ function initGame() {
   state.stamina         = 1.0;  state.sprinting = false;
   state.cursedFlash     = false; state.cursedTimer = 0; state.cursedBurnCount = 0;
   state.cursedDrainAccum = 0;   state.cursedEnemyTimer = 0;
-  state.spawnWarning    = null;
+  state.spawnWarning         = null;
+  state.flashTooltipTimer    = state.level === 1 ? 6000 : 0;
+  state.limitedWarningTimer  = state.level === 4 ? 3000 : 0;
   resetPanicAudio();
   showLevelIntro();
   updateUI();
@@ -191,17 +195,7 @@ function loop(ts) {
     state.flashHeldMs += dt;
     state.outlineAlpha = 1;
 
-    // Continuous drain: 1 charge per 1.5 s after the first second
-    if (state.flashHeldMs > 1000) {
-      const expected = Math.floor((state.flashHeldMs - 1000) / 1500) + 1;
-      while (state.flashDrainCount < expected) {
-        state.flashDrainCount++;
-        state.flashCount = Math.max(0, state.flashCount - 1);
-        if (state.flashCount === 0) { state.flashHeld = false; break; }
-      }
-    }
-
-    // Panic escalation (skipped if drain just killed the flash)
+    // Panic escalation
     if (state.flashHeld) {
       if (state.panicLevel < 1 && state.flashHeldMs >= 3000) {
         state.panicLevel = 1;
@@ -223,7 +217,6 @@ function loop(ts) {
     const lingerMs    = 500 + Math.min(state.flashHeldMs * 3, 5000);
     state.outlineAlpha = Math.max(0, state.outlineAlpha - dt / lingerMs);
     state.flashHeldMs  = 0;
-    state.flashDrainCount = 0;
 
     // Panic decay: speed recovers over 3 s after releasing flash
     if (state.panicLevel > 0) {
@@ -380,6 +373,10 @@ function loop(ts) {
       state.noteDisplay.alpha = state.noteDisplay.timer < 800 ? state.noteDisplay.timer / 800 : 1;
     }
   }
+
+  // UI timers
+  if (state.flashTooltipTimer   > 0) state.flashTooltipTimer   -= dt;
+  if (state.limitedWarningTimer > 0) state.limitedWarningTimer -= dt;
 
   // Bat random scare (2 % per second, 15 s cooldown)
   if (state.batCooldown > 0) { state.batCooldown -= dt; }
@@ -596,10 +593,14 @@ function loop(ts) {
 }
 
 function updateUI() {
-  const flashEl = document.getElementById('s-flash');
-  flashEl.textContent = `FLASHES: ${state.flashCount}`;
-  flashEl.classList.toggle('low-battery',    state.flashCount <= 2 && state.gameState === 'playing' && !state.flashHeld);
-  flashEl.classList.toggle('flash-draining', state.flashHeld && state.flashHeldMs > 1000 && state.flashCount > 0);
+  const flashEl    = document.getElementById('s-flash');
+  const unlimited  = state.flashCount === Infinity;
+  flashEl.style.display = unlimited ? 'none' : '';
+  if (!unlimited) {
+    flashEl.textContent = `FLASHES: ${state.flashCount}`;
+    flashEl.classList.toggle('low-battery', state.flashCount <= 2 && state.gameState === 'playing');
+    flashEl.classList.remove('flash-draining');
+  }
   document.getElementById('s-level').textContent = `LEVEL: ${state.level}`;
   const sType = document.getElementById('s-type');
   if (sType) sType.textContent = state.levelType || '';
@@ -629,6 +630,16 @@ function updateUI() {
   // Spawn warning
   const sSpawned = document.getElementById('s-spawned');
   if (sSpawned) sSpawned.style.display = state.spawnWarning ? 'block' : 'none';
+  // Level 1 flash tooltip
+  const tipEl = document.getElementById('flash-tooltip');
+  if (tipEl) {
+    const showTip = state.flashTooltipTimer > 0 && state.gameState === 'playing' && !state.paused;
+    tipEl.style.display = showTip ? 'block' : 'none';
+    tipEl.style.opacity = String(Math.min(1, state.flashTooltipTimer / 700));
+  }
+  // "BATTERIES NOW LIMITED" warning at level 4
+  const limitEl = document.getElementById('s-limited');
+  if (limitEl) limitEl.style.display = state.limitedWarningTimer > 0 ? 'block' : 'none';
   // Stamina bar
   const sBar = document.getElementById('stamina-bar');
   const sFill = document.getElementById('stamina-fill');
@@ -648,7 +659,9 @@ function showMsg(type) {
   el.querySelector('.msg-sub').textContent   = type === 'dead'
     ? 'IT WAS WAITING FOR YOU'
     : `${state.levelType} COMPLETE · LEVEL ${state.level}`;
-  el.querySelector('.msg-info').textContent  = `BATTERIES LEFT: ${state.flashCount}  ·  LEVEL ${state.level}`;
+  el.querySelector('.msg-info').textContent  = state.flashCount === Infinity
+    ? `LEVEL ${state.level}`
+    : `BATTERIES LEFT: ${state.flashCount}  ·  LEVEL ${state.level}`;
   el.classList.add('show');
   document.getElementById('retry-btn').textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
   if (type === 'win') state.level++;
