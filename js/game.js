@@ -27,16 +27,18 @@ function getNoteText(lvl) {
 // Each completed cycle (every 4 levels) adds 8 % enemy speed and +2 maze cells.
 const CYCLE_TYPES = ['ECHO', 'SILENCE', 'GAUNTLET', 'HUNT'];
 const TYPE_SUBS   = {
-  HUNT:     'STALKER ONLY · SMALL MAZE',
-  ECHO:     'MIMIC ONLY · LARGE MAZE',
-  SILENCE:  'BLIND ONE · NO HEARTBEAT',
-  GAUNTLET: 'ALL ENEMIES',
+  HUNT:       'STALKER ONLY · SMALL MAZE',
+  ECHO:       'MIMIC ONLY · LARGE MAZE',
+  SILENCE:    'BLIND ONE · NO HEARTBEAT',
+  GAUNTLET:   'ALL ENEMIES',
+  'LIGHTS ON':'FULLY ILLUMINATED · PURE CHASE',
 };
 const FLAVOR_TEXT = {
-  HUNT:     "It knows you're here.",
-  ECHO:     "It remembers your path.",
-  SILENCE:  "Don't make a sound.",
-  GAUNTLET: "They're all here.",
+  HUNT:       "It knows you're here.",
+  ECHO:       "It remembers your path.",
+  SILENCE:    "Don't make a sound.",
+  GAUNTLET:   "They're all here.",
+  'LIGHTS ON':"Nowhere to hide.",
 };
 const DEATH_MSGS = {
   stalker:       { title: 'FOUND',      sub: 'It never stopped moving.' },
@@ -45,11 +47,13 @@ const DEATH_MSGS = {
   cursed:        { title: 'BETRAYED',   sub: 'The camera chose its side.' },
   extra_stalker: { title: 'SURROUNDED', sub: 'There were too many.' },
 };
-const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0 };
+const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0, 'LIGHTS ON': 0 };
 
 function getLevelInfo(level) {
+  // Every 5th level from level 11 onwards is LIGHTS ON (fully lit, pure chase)
+  if (level >= 11 && (level - 11) % 5 === 0) return { type: 'LIGHTS ON', cycle: 0 };
   if (level <= 2) return { type: 'HUNT', cycle: 0 };
-  const cycle = Math.floor((level - 3) / 4) + 1;  // 1, 1, 1, 1, 2, 2, ...
+  const cycle = Math.floor((level - 3) / 4) + 1;
   const idx   = (level - 3) % 4;                   // 0=ECHO 1=SILENCE 2=GAUNTLET 3=HUNT
   return { type: CYCLE_TYPES[idx], cycle };
 }
@@ -68,7 +72,7 @@ function initGame() {
   resize();
   const { type, cycle }  = getLevelInfo(state.level);
   state.levelType         = type;
-  const useStalker        = type === 'HUNT' || type === 'GAUNTLET';
+  const useStalker        = type === 'HUNT' || type === 'GAUNTLET' || type === 'LIGHTS ON';
   const useBlind          = type === 'SILENCE' || type === 'GAUNTLET';
   const cycleBonus        = Math.max(0, cycle - 1) * 2;
   const sz = Math.max(9, Math.min(9 + state.level * 2 + cycleBonus + TYPE_MAZE_MOD[type], 35));
@@ -106,9 +110,14 @@ function initGame() {
   const cycleMult   = cycle > 0 ? Math.pow(0.92, Math.max(0, cycle - 1)) : 1.0;
   state.ENEMY_MS    = Math.max(150, Math.round((1100 - state.level * 80) * lvlMult * cycleMult));
   state.baseEnemyMS = state.ENEMY_MS;
+  if (type === 'LIGHTS ON') {
+    state.ENEMY_MS    = Math.max(150, Math.round(state.baseEnemyMS / 2)); // 2× speed
+    state.baseEnemyMS = state.ENEMY_MS;
+  }
 
-  // Battery pickups — not spawned on levels 1-3 (unlimited flash)
-  const numBatteries = state.level >= 4 ? Math.min(3 + Math.floor(state.level / 2), 7) : 0;
+  // Battery pickups — not spawned on levels 1-3 or LIGHTS ON
+  const numBatteries = (state.level >= 4 && type !== 'LIGHTS ON')
+    ? Math.min(3 + Math.floor(state.level / 2), 7) : 0;
   const exclude = new Set([`1,1`, `${gc},${gr}`, `${ec | 0},${er | 0}`]);
   const openCells = [];
   for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++)
@@ -153,8 +162,8 @@ function initGame() {
     .slice(0, numDecoys)
     .map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, phase: Math.random() * Math.PI * 2 }));
 
-  // Levels 1-3: unlimited flash (Infinity lets battery checks short-circuit naturally)
-  state.flashCount = state.level <= 3 ? Infinity : 8;
+  // Levels 1-3 and LIGHTS ON: unlimited/hidden flash
+  state.flashCount = (state.level <= 3 || type === 'LIGHTS ON') ? Infinity : 8;
   state.flashHeld = false; state.flashAlpha = 0;
   state.flashDecay = 0; state.outlineAlpha = 0; state.flashHeldMs = 0;
   state.bobTimer = 0; state.isMoving = false; state.footstepTimer = 0;
@@ -178,6 +187,7 @@ function initGame() {
   state.spawnWarning         = null;
   state.flashTooltipTimer    = state.level === 1 ? 6000 : 0;
   state.limitedWarningTimer  = state.level === 4 ? 3000 : 0;
+  state.flashesUsedThisLevel = 0;
   resetPanicAudio();
   showLevelIntro();
   updateUI();
@@ -283,6 +293,14 @@ function loop(ts) {
     state.ENEMY_MS = state.cursedEnemyTimer > 0 ? 150 : state.baseEnemyMS;
   }
 
+  // LIGHTS ON: override flash state — scene always fully lit, flash system off
+  if (state.levelType === 'LIGHTS ON') {
+    state.flashAlpha = 1.0;
+    state.flashDecay = 1.0;
+    state.flashHeld  = false;
+    state.panicLevel = 0;
+  }
+
   // Snapshot all visible enemies on flash release → afterimages (no eyes, with grain)
   if (prevFlashHeld && !state.flashHeld) {
     if (state.lastKnownE) { state.afterimages.push({ ...state.lastKnownE, alpha: 0.12, maxAlpha: 0.12 }); state.lastKnownE = null; }
@@ -352,7 +370,7 @@ function loop(ts) {
     const last = state.crumbs[state.crumbs.length - 1];
     if (!last || (P.x - last.x) ** 2 + (P.y - last.y) ** 2 > 0.12) {
       if (state.crumbs.length >= 250) state.crumbs.shift();
-      state.crumbs.push({ x: P.x, y: P.y });
+      state.crumbs.push({ x: P.x, y: P.y, angle: P.angle });
     }
   } else {
     state.footstepTimer = 0;
@@ -472,8 +490,8 @@ function loop(ts) {
     }
   }
 
-  // Stalker moves only when active and flash is on
-  if (state.E.active && state.flashAlpha > 0.04) {
+  // Stalker moves: when flash is on, OR always in LIGHTS ON
+  if (state.E.active && (state.flashAlpha > 0.04 || state.levelType === 'LIGHTS ON')) {
     if (!state.firstFlashDone) { state.firstFlashDone = true; state.minimapTimer = 4; }
     state.E.moveTimer += dt;
     while (state.E.moveTimer >= state.ENEMY_MS) { state.E.moveTimer -= state.ENEMY_MS; stepEnemy(); }
@@ -603,7 +621,8 @@ function loop(ts) {
 
   updateUI();
   const bob = state.isMoving ? Math.sin(state.bobTimer) * 0.036 : 0;
-  draw(state.flashAlpha > 0 ? state.flashAlpha : state.flashDecay * 0.32, bob, state.outlineAlpha);
+  draw(state.levelType === 'LIGHTS ON' ? 1.0
+     : state.flashAlpha > 0 ? state.flashAlpha : state.flashDecay * 0.32, bob, state.outlineAlpha);
   state.frameId = requestAnimationFrame(loop);
 }
 
@@ -642,6 +661,10 @@ function updateUI() {
     const n = state.collectedNotes.length;
     sNotes.textContent = (n > 0 || state.level > 1) ? `📄 ${n}/${state.level}` : '';
   }
+  // LIGHTS ON warning
+  const sLightsOn = document.getElementById('s-lights-on');
+  if (sLightsOn) sLightsOn.style.display =
+    (state.levelType === 'LIGHTS ON' && state.gameState === 'playing') ? 'block' : 'none';
   // SILENCE level warning (explains missing heartbeat)
   const sSilence = document.getElementById('s-silence');
   if (sSilence) sSilence.style.display =
@@ -682,6 +705,56 @@ function updateUI() {
   }
 }
 
+// ── High score ────────────────────────────────────────────────────────────────
+function loadHighScore() {
+  try { return JSON.parse(localStorage.getItem('flashstep-hiscore') || '{}'); } catch(e) { return {}; }
+}
+function saveHighScore(data) {
+  try { localStorage.setItem('flashstep-hiscore', JSON.stringify(data)); } catch(e) {}
+}
+function updateHiScoreDisplay() {
+  const hs = loadHighScore();
+  const el = document.getElementById('hi-score');
+  if (!el) return;
+  const parts = [];
+  if (hs.maxLevel)               parts.push(`Level ${hs.maxLevel}`);
+  if (hs.minFlashes !== undefined) parts.push(`${hs.minFlashes} flashes`);
+  el.textContent = parts.length ? `BEST: ${parts.join(' · ')}` : '';
+}
+
+// ── Share card ────────────────────────────────────────────────────────────────
+function generateShareCard() {
+  const W2 = 640, H2 = 360;
+  const off = document.createElement('canvas');
+  off.width = W2; off.height = H2;
+  const oc = off.getContext('2d');
+  oc.fillStyle = '#000'; oc.fillRect(0, 0, W2, H2);
+  const vg = oc.createRadialGradient(W2/2, H2/2, H2*0.2, W2/2, H2/2, H2*0.95);
+  vg.addColorStop(0, 'transparent'); vg.addColorStop(1, 'rgba(140,0,0,0.55)');
+  oc.fillStyle = vg; oc.fillRect(0, 0, W2, H2);
+  oc.textAlign = 'center';
+  oc.fillStyle = '#cc2222';
+  oc.font = "bold 52px Georgia, serif";
+  oc.fillText('THE FLASH-STEP', W2/2, 72);
+  oc.strokeStyle = '#441111'; oc.lineWidth = 1;
+  oc.beginPath(); oc.moveTo(W2*0.2, 90); oc.lineTo(W2*0.8, 90); oc.stroke();
+  oc.font = "26px 'Courier New', monospace";
+  oc.fillStyle = '#eeeeee';
+  oc.fillText(`Survived to Level ${state.winLevel}`, W2/2, 148);
+  oc.font = "20px 'Courier New', monospace";
+  oc.fillStyle = '#aa2222';
+  if (state.winFlashes > 0) oc.fillText(`${state.winFlashes} flashes used`, W2/2, 190);
+  oc.fillStyle = '#666666';
+  oc.fillText(`Escaped a ${state.winType}`, W2/2, 232);
+  oc.font = "12px 'Courier New', monospace";
+  oc.fillStyle = '#331111';
+  oc.fillText(window.location.hostname || 'flash-step', W2/2, H2 - 14);
+  const a = document.createElement('a');
+  a.download = 'flash-step-score.png';
+  a.href = off.toDataURL('image/png');
+  a.click();
+}
+
 function showMsg(type) {
   if (isMouseMode() && document.pointerLockElement) document.exitPointerLock();
   const el = document.getElementById('msgscreen');
@@ -698,7 +771,21 @@ function showMsg(type) {
     : `BATTERIES LEFT: ${state.flashCount}  ·  LEVEL ${state.level}`;
   el.classList.add('show');
   document.getElementById('retry-btn').textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
-  if (type === 'win') state.level++;
+  const shareBtn = document.getElementById('share-btn');
+  if (shareBtn) shareBtn.style.display = type === 'win' ? 'inline-block' : 'none';
+  if (type === 'win') {
+    state.winLevel   = state.level;
+    state.winType    = state.levelType;
+    state.winFlashes = state.flashesUsedThisLevel;
+    const hs = loadHighScore();
+    hs.maxLevel     = Math.max(hs.maxLevel || 0, state.level);
+    hs.totalEscaped = (hs.totalEscaped || 0) + 1;
+    if (state.level >= 4 && (hs.minFlashes === undefined || state.flashesUsedThisLevel < hs.minFlashes))
+      hs.minFlashes = state.flashesUsedThisLevel;
+    saveHighScore(hs);
+    updateHiScoreDisplay();
+    state.level++;
+  }
 }
 
 // ── Level intro card ──────────────────────────────────────────────────────────
@@ -780,6 +867,11 @@ state.ctx.fillStyle = '#000';
 state.ctx.fillRect(0, 0, state.W, state.H);
 applyControlScheme();
 
+// High score display on main menu
+updateHiScoreDisplay();
+// Share card button
+document.getElementById('share-btn').addEventListener('click', generateShareCard);
+
 // Attempt to load PNG sprites; falls back to procedural shapes if missing
 loadSprites({
   battery:       'sprites/battery.png',
@@ -792,17 +884,21 @@ loadSprites({
   stalker:       'sprites/stalker.png',
   mimic:         'sprites/mimic.png',
   blind:         'sprites/blind.png',
+  footprint:     'sprites/footprint.png',
+  spider:        'sprites/spider.png',
 }).catch(() => {});
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 
 function startFlash() {
   if (state.gameState !== 'playing') return;
-  if (state.cursedFlash) return;              // already cursed, can't override
+  if (state.levelType === 'LIGHTS ON') return; // flash disabled
+  if (state.cursedFlash) return;
   if (state.flashCount <= 0) { playEmpty(); return; }
   if (!state.flashHeld) {
     state.flashCount--;
-    if (state.cursedBurnCount > 0) state.cursedBurnCount--;  // consume one camera-burn charge
+    if (state.level >= 4) state.flashesUsedThisLevel++;
+    if (state.cursedBurnCount > 0) state.cursedBurnCount--;
     if (Math.random() < 1 / 40) {
       // Cursed flash — single red frame then strobe begins
       state.cursedFlash      = true;

@@ -265,6 +265,18 @@ export function draw(lit, bob, outline) {
           }
         }
         ctx.globalAlpha = 1; ctx.restore();
+        // Spider sitting at mid-height on the wall surface
+        const spiderSpr = getSprite('spider');
+        if (spiderSpr && !web.hit) {
+          const sz = Math.max(4, H * 1.65 / wdist * 0.15);
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.globalAlpha = Math.max(0, (1 - wdist / 5) * lit * 0.78);
+          ctx.drawImage(spiderSpr, wsx - sz / 2, H / 2 + hs - sz / 2, sz, sz);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
       }
     }
   }
@@ -293,26 +305,44 @@ export function draw(lit, bob, outline) {
 
   // Breadcrumbs — player trail, floor level, flash-only
   if (lit > 0) {
-    for (const crumb of state.crumbs) {
+    const footSpr = getSprite('footprint');
+    for (let ci = 0; ci < state.crumbs.length; ci++) {
+      const crumb = state.crumbs[ci];
       const cdx = crumb.x - P.x, cdy = crumb.y - P.y;
       const cdist2 = cdx * cdx + cdy * cdy;
-      if (cdist2 < 0.09 || cdist2 > 64) continue;          // skip <0.3 or >8 units
+      if (cdist2 < 0.09 || cdist2 > 64) continue;
       const cdist = Math.sqrt(cdist2);
       let ca = Math.atan2(cdy, cdx) - P.angle;
       while (ca >  Math.PI) ca -= Math.PI * 2;
       while (ca < -Math.PI) ca += Math.PI * 2;
-      if (Math.abs(ca) > HFOV) continue;                    // outside screen width
+      if (Math.abs(ca) > HFOV) continue;
       const csx = W / 2 + (ca / HFOV) * (W / 2);
       const col = Math.max(0, Math.min(NR - 1, (csx / W * NR) | 0));
-      if (zb[col] < cdist) continue;                        // behind a wall
+      if (zb[col] < cdist) continue;
       const cph  = H * 1.65 / cdist;
       const cy   = H / 2 + cph * 0.30 + hs;
       if (cy > H) continue;
       const alpha = Math.pow(1 - cdist / 8, 1.8) * lit * 0.20;
       if (alpha < 0.012) continue;
       const r = Math.max(1, H * 0.007 / cdist);
-      ctx.fillStyle = `rgba(185,162,148,${alpha})`;
-      ctx.fillRect(csx - r, cy - r * 0.5, r * 2, r);       // slightly wide, flat dot
+      if (footSpr) {
+        const isLeft  = ci % 2 === 0;
+        const fw = r * 3.5, fh = r * 2.2;
+        const rot = (crumb.angle || 0) - P.angle; // orient in walk direction
+        ctx.save();
+        ctx.translate(csx, cy);
+        ctx.rotate(rot);
+        if (!isLeft) ctx.scale(-1, 1);            // mirror for right foot
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(footSpr, -fw / 2, -fh / 2, fw, fh);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      } else {
+        ctx.fillStyle = `rgba(185,162,148,${alpha})`;
+        ctx.fillRect(csx - r, cy - r * 0.5, r * 2, r);
+      }
     }
   }
 

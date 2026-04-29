@@ -15,6 +15,7 @@
     <div id="s-moving">● MOVING</div>
     <div id="s-notes" class="stat-small"></div>
     <div id="s-type"  class="stat-type"></div>
+    <div id="s-lights-on" class="stat-warn"  style="display:none">💡 LIGHTS ON</div>
     <div id="s-silence"   class="stat-small" style="display:none">🔇 SILENCE</div>
     <div id="s-limited"   class="stat-warn"  style="display:none">BATTERIES NOW LIMITED</div>
     <div id="s-cursed"    class="stat-warn"  style="display:none">⚡ CURSED ⚡</div>
@@ -46,6 +47,7 @@
       MOBILE: DPAD · TURN BUTTONS · FLASH BUTTON<br>
       FIRST FLASH shows a map · LISTEN for heartbeat
     </div>
+    <div id="hi-score" class="hi-score-display"></div>
   </div>
 
   <!-- Options panel -->
@@ -147,6 +149,7 @@
   <div class="msg-sub"></div>
   <div class="msg-info"></div>
   <button class="btn" style="margin-top:38px" id="retry-btn">TRY AGAIN</button>
+  <button class="btn" style="margin-top:8px;display:none" id="share-btn">SHARE SCORE</button>
 </div>
 
 <svg id="crosshair" width="18" height="18" viewBox="0 0 18 18">
