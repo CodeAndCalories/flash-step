@@ -282,21 +282,22 @@ export function startExitHum() {
   if (humNodes) return;
   try {
     const a = getAudio();
-    // Two sines 0.6 Hz apart — the beating gives a slow organic tremolo
-    const o1 = a.createOscillator(), o2 = a.createOscillator();
-    o1.type = 'sine'; o1.frequency.value = 62.0;
-    o2.type = 'sine'; o2.frequency.value = 62.6;
+    // Three-oscillator minor chord — root + minor-third + fifth give a sense of safety/arrival
+    const o1 = a.createOscillator(), o2 = a.createOscillator(), o3 = a.createOscillator();
+    o1.type = 'sine'; o1.frequency.value = 62.0;   // root
+    o2.type = 'sine'; o2.frequency.value = 73.8;   // minor third (~62 × 1.19)
+    o3.type = 'sine'; o3.frequency.value = 93.0;   // fifth (~62 × 1.50)
 
     const lp = a.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 185;
+    lp.type = 'lowpass'; lp.frequency.value = 200;
 
-    const gain   = a.createGain();     gain.gain.value = 0;
+    const gain   = a.createGain();         gain.gain.value = 0;
     const panner = a.createStereoPanner(); panner.pan.value = 0;
 
-    o1.connect(lp); o2.connect(lp);
+    o1.connect(lp); o2.connect(lp); o3.connect(lp);
     lp.connect(gain); gain.connect(panner); panner.connect(getMasterGain());
-    o1.start(); o2.start();
-    humNodes = { o1, o2, gain, panner };
+    o1.start(); o2.start(); o3.start();
+    humNodes = { o1, o2, o3, gain, panner };
   } catch(e) {}
 }
 
@@ -305,7 +306,7 @@ export function stopExitHum() {
   const n = humNodes; humNodes = null;
   try {
     n.gain.gain.setTargetAtTime(0, getAudio().currentTime, 0.25);
-    setTimeout(() => { try { n.o1.stop(); n.o2.stop(); } catch(e) {} }, 900);
+    setTimeout(() => { try { n.o1.stop(); n.o2.stop(); n.o3.stop(); } catch(e) {} }, 900);
   } catch(e) {}
 }
 
@@ -473,6 +474,25 @@ export function playBlindClick(pan, intensity) {
 }
 
 // Mimic proximity ping — high ethereal tone, distinct from heartbeat
+export function playCursedFlash() {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.35);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const env = i < len * 0.07 ? i / (len * 0.07) : Math.pow(1 - i / len, 0.4);
+      d[i] = (Math.random() * 2 - 1) * env * (Math.random() < 0.22 ? 2.8 : 0.55);
+    }
+    const src = a.createBufferSource();
+    const g   = a.createGain(); g.gain.value = 0.80;
+    src.buffer = buf; src.connect(g); g.connect(getMasterGain()); src.start();
+  } catch(e) {}
+  tone(130, 'sawtooth', 0.55, 0.42);
+  tone(195, 'square',   0.50, 0.32, 0.04);
+  tone(78,  'sawtooth', 0.75, 0.48, 0.02);
+}
+
 export function playMimicPulse(intensity) {
   try {
     const a = getAudio(), t = a.currentTime;

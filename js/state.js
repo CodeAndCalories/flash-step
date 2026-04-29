@@ -75,4 +75,14 @@ export const state = {
   // Sprint / stamina
   stamina:         1.0,
   sprinting:       false,
+  // Cursed flash
+  cursedFlash:      false,
+  cursedTimer:      0,
+  cursedBurnCount:  0,
+  cursedDrainAccum: 0,
+  cursedEnemyTimer: 0,
+  // Extra stalkers (level 9+)
+  extraStalkers:    [],
+  extraSpawnTimer:  0,
+  spawnWarning:     null,
 };
