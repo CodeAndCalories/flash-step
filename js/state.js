@@ -9,7 +9,7 @@ export const state = {
   ROWS: 0,
 
   P: { x: 1.5, y: 1.5, angle: 0 },
-  E: { x: 0, y: 0, moveTimer: 0 },
+  E: { x: 0, y: 0, moveTimer: 0, active: true },
   ENEMY_MS: 900,
 
   gameState: 'menu',
@@ -72,6 +72,7 @@ export const state = {
   lastPlayerCell:  null,
   webs:            [],
   webEffect:       null,
+  levelType:       'HUNT',
   // Sprint / stamina
   stamina:         1.0,
   sprinting:       false,

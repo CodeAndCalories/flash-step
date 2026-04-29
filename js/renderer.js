@@ -62,6 +62,7 @@ export function cast(ox, oy, angle) {
 
 export function enemyScreen() {
   const { P, E, W, H } = state;
+  if (!E.active) return null;
   const dx = E.x - P.x, dy = E.y - P.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist < 0.1) return null;
