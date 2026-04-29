@@ -408,6 +408,70 @@ export function resetPanicAudio() {
   _breathNext = 0;
 }
 
+// ── New feature sounds ────────────────────────────────────────────────────────
+
+export function playPaperRustle() {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.18);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len) * 0.4;
+    const src = a.createBufferSource();
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = 0.7;
+    const g = a.createGain(); g.gain.value = 0.20;
+    src.buffer = buf; src.connect(bp); bp.connect(g); g.connect(getMasterGain()); src.start();
+  } catch(e) {}
+}
+
+export function playBatScreech() {
+  tone(2900, 'sawtooth', 0.06, 0.09);
+  tone(3700, 'sine',     0.08, 0.07, 0.018);
+  tone(2100, 'square',   0.05, 0.06, 0.008);
+}
+
+export function playRatSkitter() {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.042);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.5);
+    const src = a.createBufferSource();
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2200;
+    const g = a.createGain(); g.gain.value = 0.16;
+    src.buffer = buf; src.connect(hp); hp.connect(g); g.connect(getMasterGain()); src.start();
+  } catch(e) {}
+}
+
+export function playWebStick() {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.12);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 0.5) * 0.28;
+    const src = a.createBufferSource();
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 2.5;
+    const g = a.createGain(); g.gain.value = 0.24;
+    src.buffer = buf; src.connect(bp); bp.connect(g); g.connect(getMasterGain()); src.start();
+  } catch(e) {}
+}
+
+export function playBlindClick(pan, intensity) {
+  try {
+    const a = getAudio(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain(), p = a.createStereoPanner();
+    o.type = 'square'; o.frequency.value = 1900;
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.022 * intensity, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.052);
+    o.connect(g); g.connect(p); p.connect(getMasterGain());
+    o.start(t); o.stop(t + 0.06);
+  } catch(e) {}
+}
+
 // Mimic proximity ping — high ethereal tone, distinct from heartbeat
 export function playMimicPulse(intensity) {
   try {

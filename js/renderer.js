@@ -25,6 +25,19 @@ function mimicScreen() {
   return { sx: W / 2 + (a / HFOV) * (W / 2), dist, ph: Math.min(H * 1.65 / dist, H * 3.5) };
 }
 
+function blindScreen() {
+  const { P, B, W, H } = state;
+  if (!B || !B.active) return null;
+  const dx = B.x - P.x, dy = B.y - P.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.1) return null;
+  let a = Math.atan2(dy, dx) - P.angle;
+  while (a >  Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  if (Math.abs(a) > HFOV * 1.35) return null;
+  return { sx: W / 2 + (a / HFOV) * (W / 2), dist, ph: Math.min(H * 1.65 / dist, H * 3.5) };
+}
+
 export function cast(ox, oy, angle) {
   const { MAP, COLS, ROWS } = state;
   const dx = Math.cos(angle), dy = Math.sin(angle);
@@ -149,6 +162,38 @@ export function draw(lit, bob, outline) {
     }
   }
 
+  // Spider web overlays — faint radial patterns on wall faces (flash only)
+  if (lit > 0 && state.webs) {
+    for (const web of state.webs) {
+      if (web.hit) continue;
+      const wdx = web.x - P.x, wdy = web.y - P.y;
+      const wdist = Math.sqrt(wdx * wdx + wdy * wdy);
+      if (wdist > 5) continue;
+      let wa = Math.atan2(wdy, wdx) - P.angle;
+      while (wa >  Math.PI) wa -= Math.PI * 2;
+      while (wa < -Math.PI) wa += Math.PI * 2;
+      if (Math.abs(wa) > HFOV) continue;
+      const wsx = W / 2 + (wa / HFOV) * (W / 2);
+      const col = Math.max(0, Math.min(NR - 1, (wsx / W * NR) | 0));
+      if (zb[col] > wdist * 0.92) {
+        const wrad = Math.min(H * 1.65 / wdist * 0.45, W * 0.10);
+        const wcy  = H / 2 + hs;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, (1 - wdist / 5) * lit * 0.22);
+        ctx.strokeStyle = '#e8e0c8'; ctx.lineWidth = 0.6;
+        for (let k = 0; k < 8; k++) {
+          const ang = k * Math.PI / 4;
+          ctx.beginPath(); ctx.moveTo(wsx, wcy);
+          ctx.lineTo(wsx + Math.cos(ang) * wrad, wcy + Math.sin(ang) * wrad); ctx.stroke();
+        }
+        for (let ring = 1; ring <= 3; ring++) {
+          ctx.beginPath(); ctx.arc(wsx, wcy, wrad * ring / 3, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.globalAlpha = 1; ctx.restore();
+      }
+    }
+  }
+
   // Outline / afterglow — wall edges linger after flash released
   if (outline > 0 && lit < 0.9) {
     const oLit = outline * (1 - lit);
@@ -253,6 +298,70 @@ export function draw(lit, bob, outline) {
       ctx.fillRect(bsx - bw * 0.36, bCy - bh * 0.32, bw * 0.72, bh * 0.58);
 
       ctx.restore();
+    }
+  }
+
+  // Collectible note — cream floor sprite, glows amber in dark
+  if (state.note && !state.noteCollected) {
+    const ndx = state.note.x - P.x, ndy = state.note.y - P.y;
+    const ndist = Math.sqrt(ndx * ndx + ndy * ndy);
+    if (ndist >= 0.15 && ndist <= MAXD) {
+      let na = Math.atan2(ndy, ndx) - P.angle;
+      while (na >  Math.PI) na -= Math.PI * 2;
+      while (na < -Math.PI) na += Math.PI * 2;
+      if (Math.abs(na) <= HFOV * 1.4) {
+        const nsx = W / 2 + (na / HFOV) * (W / 2);
+        const nph = Math.min(H * 1.65 / ndist, H * 3.5);
+        const nCy = H / 2 + nph * 0.30;
+        const npulse = 0.7 + 0.3 * Math.sin(now * 0.003 + state.note.x);
+        if (ndist < 5) {
+          const nA = Math.pow(1 - ndist / 5, 1.8) * 0.50 * npulse;
+          const ng = ctx.createRadialGradient(nsx, nCy, 0, nsx, nCy, Math.max(8, nph * 0.25) * 2.5);
+          ng.addColorStop(0, `rgba(240,225,185,${nA})`); ng.addColorStop(1, 'transparent');
+          ctx.fillStyle = ng; ctx.fillRect(nsx - nph * 0.5, nCy - nph * 0.5, nph, nph);
+        }
+        if (lit > 0) {
+          const nh = Math.max(5, nph * 0.12), nw = nh * 0.75;
+          const nc0 = Math.max(0, ((nsx - nw) / W * NR) | 0);
+          const nc1 = Math.min(NR - 1, ((nsx + nw) / W * NR) | 0);
+          ctx.save(); ctx.beginPath();
+          for (let sc = nc0; sc <= nc1; sc++) if (zb[sc] > ndist) ctx.rect(sc * cw, 0, cw + 1, H);
+          ctx.clip();
+          const nLitA = Math.min(1, lit * 1.3) * Math.min(1, 4 / ndist) * npulse;
+          const ng2 = ctx.createRadialGradient(nsx, nCy, 0, nsx, nCy, nh * 2.8);
+          ng2.addColorStop(0, `rgba(245,232,195,${nLitA})`); ng2.addColorStop(1, 'transparent');
+          ctx.fillStyle = ng2; ctx.fillRect(nsx - nh * 3, nCy - nh * 3, nh * 6, nh * 6);
+          ctx.fillStyle = `rgba(240,228,192,${nLitA})`;
+          ctx.fillRect(nsx - nw * 0.5, nCy - nh * 0.5, nw, nh);
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  // Rat floor sprite (world space, only when lit)
+  if (state.rat && lit > 0) {
+    const rdx = state.rat.wx - P.x, rdy = state.rat.wy - P.y;
+    const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
+    if (rdist > 0.1 && rdist < 6) {
+      let ra = Math.atan2(rdy, rdx) - P.angle;
+      while (ra >  Math.PI) ra -= Math.PI * 2;
+      while (ra < -Math.PI) ra += Math.PI * 2;
+      if (Math.abs(ra) <= HFOV) {
+        const rsx = W / 2 + (ra / HFOV) * (W / 2);
+        const rcol = Math.max(0, Math.min(NR - 1, (rsx / W * NR) | 0));
+        if (zb[rcol] >= rdist * 0.9) {
+          const rph = H * 1.65 / rdist;
+          const rcy = H / 2 + rph * 0.30 + hs;
+          if (rcy < H) {
+            ctx.save(); ctx.globalAlpha = state.rat.life * 0.88;
+            ctx.fillStyle = '#181010';
+            const rr = Math.max(2, H * 0.005 / rdist);
+            ctx.beginPath(); ctx.ellipse(rsx, rcy, rr * 2.2, rr, 0.3, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1; ctx.restore();
+          }
+        }
+      }
     }
   }
 
@@ -442,6 +551,30 @@ export function draw(lit, bob, outline) {
     ctx.restore();
   }
 
+  // Blind One — no eyes, slightly shorter, only visible when lit (no dark tell)
+  const bs = state.level >= 5 ? blindScreen() : null;
+  if (bs && lit > 0) {
+    const { sx: bsx2, dist: bd, ph: bph2 } = bs;
+    const bsw = bph2 * 0.50, bsprX = bsx2 - bsw / 2;
+    const bph2r = bph2 * 0.78, bsprY = H / 2 - bph2r * 0.5 + hs;
+    const bsc0 = Math.max(0, (bsprX / W * NR) | 0), bsc1 = Math.min(NR - 1, ((bsprX + bsw) / W * NR) | 0);
+    ctx.save(); ctx.beginPath();
+    for (let sc = bsc0; sc <= bsc1; sc++) if (zb[sc] > bd) ctx.rect(sc * cw, 0, cw + 1, H);
+    ctx.clip();
+    const bba = Math.min(1, lit * 1.0) * Math.min(1, 5 / bd);
+    ctx.fillStyle = `rgba(2,1,1,${bba})`;
+    ctx.fillRect(bsprX + bsw * 0.23, bsprY + bph2r * 0.2, bsw * 0.54, bph2r * 0.76);
+    ctx.fillStyle = `rgba(3,1,1,${bba})`;
+    ctx.beginPath(); ctx.ellipse(bsx2, bsprY + bph2r * 0.13, bsw * 0.26, bph2r * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    // Void eye sockets — solid black, no glow
+    const besz = Math.max(1.5, bph2r * 0.030), beo = Math.max(2, bph2r * 0.078);
+    ctx.fillStyle = `rgba(0,0,0,${bba})`;
+    [bsx2 - beo, bsx2 + beo].forEach(ex => {
+      ctx.beginPath(); ctx.arc(ex, bsprY + bph2r * 0.1, besz * 1.3, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.restore();
+  }
+
   // Vignette + flash burst + scanlines
   if (lit > 0) {
     const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.18, W / 2, H / 2, H * 0.88);
@@ -482,6 +615,15 @@ export function draw(lit, bob, outline) {
     }
   }
 
+  // Web vignette — soft sticky overlay when player hit a web
+  if (state.webEffect) {
+    const wa = Math.min(1, state.webEffect.timer / 600) * 0.18;
+    const wvg = ctx.createRadialGradient(W / 2, H / 2, H * 0.12, W / 2, H / 2, H * 0.88);
+    wvg.addColorStop(0, 'transparent');
+    wvg.addColorStop(1, `rgba(200,195,168,${wa})`);
+    ctx.fillStyle = wvg; ctx.fillRect(0, 0, W, H);
+  }
+
   // Minimap — shown for 4 s after first flash
   if (minimapTimer > 0 && gameState === 'playing') {
     const a   = Math.min(1, minimapTimer * 0.8) * 0.88;
@@ -503,6 +645,18 @@ export function draw(lit, bob, outline) {
       ctx.fillStyle = '#ccccff';
       ctx.fillRect(mx2 + state.M.x * ms - 1.5, my2 + state.M.y * ms - 1.5, 3, 3);
     }
+    if (state.level >= 5 && state.B.active) {
+      ctx.fillStyle = '#404040';
+      ctx.fillRect(mx2 + state.B.x * ms - 1.5, my2 + state.B.y * ms - 1.5, 3, 3);
+    }
+    for (const web of state.webs) if (!web.hit) {
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      ctx.fillRect(mx2 + web.x * ms - 1, my2 + web.y * ms - 1, 2, 2);
+    }
+    if (state.note && !state.noteCollected) {
+      ctx.fillStyle = '#f0e4b8';
+      ctx.fillRect(mx2 + state.note.x * ms - 1, my2 + state.note.y * ms - 1, 2, 2);
+    }
     ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(mx2 + P.x * ms, my2 + P.y * ms);
@@ -512,6 +666,23 @@ export function draw(lit, bob, outline) {
   }
 
   ctx.restore();
+
+  // Bat scare — screen-space, outside shake transform
+  if (state.bat) {
+    const { t, dir } = state.bat;
+    const bx = dir > 0 ? t * (W + 80) - 40 : W + 40 - t * (W + 80);
+    const by = H * 0.14 + Math.sin(t * Math.PI * 5) * H * 0.04;
+    const flap = Math.sin(t * Math.PI * 14);
+    ctx.save(); ctx.fillStyle = 'rgba(3,2,2,0.96)';
+    ctx.beginPath(); ctx.ellipse(bx, by, 7, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(bx - 5, by);
+    ctx.bezierCurveTo(bx-24, by-15*(1+flap), bx-36, by+6, bx-22, by+4);
+    ctx.bezierCurveTo(bx-12, by+7, bx-5, by+2, bx-5, by); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(bx + 5, by);
+    ctx.bezierCurveTo(bx+24, by-15*(1+flap), bx+36, by+6, bx+22, by+4);
+    ctx.bezierCurveTo(bx+12, by+7, bx+5, by+2, bx+5, by); ctx.fill();
+    ctx.restore();
+  }
 
   // Jump scare overlay — drawn outside the shake transform
   if (state.jumpScareTimer > 0) drawJumpScare(ctx, W, H, state.jumpScareTimer);
