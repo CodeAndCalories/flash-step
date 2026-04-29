@@ -1,5 +1,48 @@
 import { state } from './state.js';
 
+// ── Sprite pipeline ───────────────────────────────────────────────────────────
+// Drop PNG files in sprites/ and call loadSprites() at boot.
+// getSprite(key) returns the Image or null (triggers procedural fallback).
+// drawSprite() handles depth-testing and clipping identically to enemy sprites.
+
+const spriteCache = {};
+
+export function loadSprites(defs) {
+  return Promise.all(
+    Object.entries(defs).map(([key, src]) =>
+      new Promise(resolve => {
+        const img = new Image();
+        img.onload  = () => { spriteCache[key] = img;  resolve(key); };
+        img.onerror = () => { spriteCache[key] = null; resolve(null); }; // null → procedural
+        img.src = src;
+      })
+    )
+  );
+}
+
+export function getSprite(key) { return spriteCache[key] ?? null; }
+
+// drawSprite — depth-tested screen-space sprite draw.
+// x, y: top-left corner. w, h: display size. alpha: 0-1 opacity.
+// Returns true if the sprite was visible and drawn.
+export function drawSprite(ctx, img, x, y, w, h, alpha, zb, cw, dist, W, NR, canvasH) {
+  if (!img || alpha <= 0) return false;
+  const sc0 = Math.max(0, (x / W * NR) | 0);
+  const sc1 = Math.min(NR - 1, ((x + w) / W * NR) | 0);
+  let visible = false;
+  for (let sc = sc0; sc <= sc1 && !visible; sc++) if (zb[sc] > dist) visible = true;
+  if (!visible) return false;
+  ctx.save();
+  ctx.beginPath();
+  for (let sc = sc0; sc <= sc1; sc++) if (zb[sc] > dist) ctx.rect(sc * cw, 0, cw + 1, canvasH);
+  ctx.clip();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(img, x, y, w, h);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  return true;
+}
+
 export const FOV  = Math.PI / 2.3;
 export const HFOV = FOV / 2;
 export const MAXD = 18;
@@ -262,7 +305,7 @@ export function draw(lit, bob, outline) {
     }
   }
 
-  // Battery pickups
+  // Battery pickups — AA battery with bob, floor pool, and PNG sprite support
   const now = Date.now();
   for (const b of state.batteries) {
     const bdx = b.x - P.x, bdy = b.y - P.y;
@@ -273,50 +316,122 @@ export function draw(lit, bob, outline) {
     while (ba2 < -Math.PI) ba2 += Math.PI * 2;
     if (Math.abs(ba2) > HFOV * 1.4) continue;
 
-    const bsx  = W / 2 + (ba2 / HFOV) * (W / 2);
-    const bph  = Math.min(H * 1.65 / bdist, H * 3.5);
-    const bCy  = H / 2 + bph * 0.3;
-    const pulse = 0.6 + 0.4 * Math.sin(now * 0.004 + b.x * 2.1);
+    const bsx     = W / 2 + (ba2 / HFOV) * (W / 2);
+    const bph     = Math.min(H * 1.65 / bdist, H * 3.5);
+    const bFloorY = H / 2 + bph * 0.30;          // floor contact level
+    const pulse   = 0.65 + 0.35 * Math.sin(now * 0.004 + b.x * 2.1);
 
     // Ambient amber glow — visible in the dark up to 5 units
     if (bdist < 5) {
-      const gAlpha = Math.pow(1 - bdist / 5, 1.8) * 0.55 * pulse;
-      const gRad   = Math.max(8, bph * 0.22);
-      const grd    = ctx.createRadialGradient(bsx, bCy, 0, bsx, bCy, gRad * 2.8);
-      grd.addColorStop(0,   `rgba(255,185,30,${gAlpha})`);
+      const gAlpha = Math.pow(1 - bdist / 5, 1.8) * 0.58 * pulse;
+      const gRad   = Math.max(8, bph * 0.26);
+      const grd    = ctx.createRadialGradient(bsx, bFloorY, 0, bsx, bFloorY, gRad * 2.8);
+      grd.addColorStop(0,   `rgba(255,190,30,${gAlpha})`);
       grd.addColorStop(0.5, `rgba(200,110,5,${gAlpha * 0.4})`);
       grd.addColorStop(1,   'transparent');
       ctx.fillStyle = grd;
-      ctx.fillRect(bsx - gRad * 3, bCy - gRad * 3, gRad * 6, gRad * 6);
+      ctx.fillRect(bsx - gRad * 3, bFloorY - gRad * 3, gRad * 6, gRad * 6);
     }
 
-    // Full sprite — only when flash is on, depth-tested
+    // Full render when flash is on, depth-tested
     if (lit > 0) {
-      const bh  = Math.max(5, bph * 0.14);
-      const bw  = bh * 0.52;
-      const sc0 = Math.max(0, ((bsx - bw) / W * NR) | 0);
-      const sc1 = Math.min(NR - 1, ((bsx + bw) / W * NR) | 0);
+      const bh  = Math.max(6, bph * 0.15);                 // body height
+      const bw  = bh * 0.38;                                // AA: tall & narrow
+      const bob = Math.sin(now * 0.0018 + b.x * 3.7) * bh * 0.12; // slow float
+      const ty  = bFloorY - bh - bob;                       // top of battery
+      const sc0 = Math.max(0, ((bsx - bw * 1.3) / W * NR) | 0);
+      const sc1 = Math.min(NR - 1, ((bsx + bw * 1.3) / W * NR) | 0);
+
       ctx.save();
       ctx.beginPath();
       for (let sc = sc0; sc <= sc1; sc++) if (zb[sc] > bdist) ctx.rect(sc * cw, 0, cw + 1, H);
       ctx.clip();
 
-      const litA = Math.min(1, lit * 1.2) * Math.min(1, 5 / bdist) * pulse;
-      // Halo
-      const grd2 = ctx.createRadialGradient(bsx, bCy, 0, bsx, bCy, bh * 3.2);
-      grd2.addColorStop(0, `rgba(255,210,60,${litA})`);
-      grd2.addColorStop(1, 'transparent');
-      ctx.fillStyle = grd2;
-      ctx.fillRect(bsx - bh * 3.5, bCy - bh * 3.5, bh * 7, bh * 7);
-      // Casing
-      ctx.fillStyle = `rgba(28,20,3,${litA})`;
-      ctx.fillRect(bsx - bw * 0.5, bCy - bh * 0.5, bw, bh);
-      // Terminal nub
-      ctx.fillStyle = `rgba(255,195,45,${litA})`;
-      ctx.fillRect(bsx - bw * 0.18, bCy - bh * 0.62, bw * 0.36, bh * 0.15);
-      // Charge fill
-      ctx.fillStyle = `rgba(255,220,65,${litA * pulse})`;
-      ctx.fillRect(bsx - bw * 0.36, bCy - bh * 0.32, bw * 0.72, bh * 0.58);
+      const litA = Math.min(1, lit * 1.2) * Math.min(1, 5 / bdist);
+      const spr  = getSprite('battery');
+
+      // ── Floor light pool (flattened amber ellipse) ──────────────────────
+      ctx.save();
+      ctx.translate(bsx, bFloorY);
+      ctx.scale(1, 0.28);
+      const pgrd = ctx.createRadialGradient(0, 0, 0, 0, 0, bw * 2.4);
+      pgrd.addColorStop(0, `rgba(255,168,18,${litA * 0.28})`);
+      pgrd.addColorStop(1, 'transparent');
+      ctx.fillStyle = pgrd;
+      ctx.fillRect(-bw * 2.6, -bw * 2.6, bw * 5.2, bw * 5.2);
+      ctx.restore();
+
+      if (spr) {
+        // ── PNG sprite path ───────────────────────────────────────────────
+        ctx.globalAlpha = litA * pulse;
+        ctx.drawImage(spr, bsx - bw, ty, bw * 2, bh);
+        ctx.globalAlpha = 1;
+      } else {
+        // ── Procedural AA battery ─────────────────────────────────────────
+        const r = Math.max(1, bw * 0.28);  // corner radius
+
+        // Casing body — dark metallic grey with rounded top/bottom
+        ctx.fillStyle = `rgba(65,68,73,${litA})`;
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(bsx - bw * 0.5, ty + bh * 0.10, bw, bh * 0.84, [r, r, r * 0.5, r * 0.5]);
+          ctx.fill();
+        } else {
+          ctx.fillRect(bsx - bw * 0.5, ty + bh * 0.10, bw, bh * 0.84);
+        }
+
+        // Metallic highlight stripe (left ~28 %)
+        {
+          const hlg = ctx.createLinearGradient(bsx - bw * 0.5, 0, bsx - bw * 0.14, 0);
+          hlg.addColorStop(0, `rgba(148,152,160,${litA * 0.55})`);
+          hlg.addColorStop(1, 'transparent');
+          ctx.fillStyle = hlg;
+          ctx.fillRect(bsx - bw * 0.5, ty + bh * 0.10, bw * 0.36, bh * 0.84);
+        }
+
+        // Label band — darker equatorial stripe
+        ctx.fillStyle = `rgba(36,38,42,${litA * 0.92})`;
+        ctx.fillRect(bsx - bw * 0.46, ty + bh * 0.40, bw * 0.92, bh * 0.20);
+
+        // Charge indicator bar (right of centre, vertical)
+        {
+          const barX = bsx + bw * 0.24, barT = ty + bh * 0.16, barH = bh * 0.62;
+          const cf   = state.flashCount === Infinity ? 1 : Math.min(1, state.flashCount / 12);
+          // Track
+          ctx.fillStyle = `rgba(12,25,12,${litA})`;
+          ctx.fillRect(barX, barT, bw * 0.11, barH);
+          // Fill (green → amber → red)
+          ctx.fillStyle = cf > 0.5 ? `rgba(45,215,65,${litA})`
+                        : cf > 0.2 ? `rgba(215,192,25,${litA})`
+                        :            `rgba(215,42,22,${litA})`;
+          ctx.fillRect(barX, barT + barH * (1 - cf), bw * 0.11, barH * cf);
+          // Soft glow on bar
+          const bgrd = ctx.createRadialGradient(barX + bw * 0.055, barT + barH * 0.5, 0,
+                                                barX + bw * 0.055, barT + barH * 0.5, bw * 0.55);
+          bgrd.addColorStop(0, cf > 0.5 ? `rgba(60,255,80,${litA * 0.36 * pulse})`
+                              :           `rgba(255,175,25,${litA * 0.36 * pulse})`);
+          bgrd.addColorStop(1, 'transparent');
+          ctx.fillStyle = bgrd;
+          ctx.fillRect(barX - bw * 0.4, barT, bw, barH);
+        }
+
+        // Positive terminal — gold nub on top
+        ctx.fillStyle = `rgba(208,162,32,${litA})`;
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(bsx - bw * 0.20, ty, bw * 0.40, bh * 0.12, bw * 0.09);
+          ctx.fill();
+        } else {
+          ctx.fillRect(bsx - bw * 0.20, ty, bw * 0.40, bh * 0.12);
+        }
+        // Terminal highlight
+        ctx.fillStyle = `rgba(238,205,78,${litA * 0.65})`;
+        ctx.fillRect(bsx - bw * 0.17, ty + bh * 0.012, bw * 0.20, bh * 0.05);
+
+        // Negative terminal — flat black ring on bottom
+        ctx.fillStyle = `rgba(8,8,8,${litA})`;
+        ctx.fillRect(bsx - bw * 0.46, ty + bh * 0.92, bw * 0.92, bh * 0.06);
+      }
 
       ctx.restore();
     }
