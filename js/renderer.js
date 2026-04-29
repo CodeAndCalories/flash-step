@@ -117,7 +117,8 @@ export function draw(lit, bob, outline) {
 
   // Full colour render while lit
   if (lit > 0) {
-    const wallH = theme === 'sewer' ? 0.765 : 0.9; // sewer: lower ceiling (0.9 × 0.85)
+    const wallH = theme === 'sewer' ? 0.765 : 0.9;
+    let goalL = NR, goalR = -1, goalTopY = 0, goalWH = 0;
     for (let i = 0; i < NR; i++) {
       const ra = P.angle - HFOV + (i / NR) * FOV;
       const { dist, goal, side, wx } = cast(P.x, P.y, ra);
@@ -148,6 +149,25 @@ export function draw(lit, bob, outline) {
       }
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.fillRect(i * cw, top, cw + 1, wh);
+      if (goal) { if (i < goalL) { goalL = i; goalTopY = top; goalWH = wh; } if (i > goalR) goalR = i; }
+    }
+    // Exit door frame + floating particles
+    if (goalL <= goalR) {
+      const doorW = (goalR - goalL + 1) * cw;
+      const fw    = Math.max(2, doorW * 0.055);
+      ctx.fillStyle = `rgba(50,255,80,${lit * 0.88})`;
+      ctx.fillRect(goalL * cw, goalTopY, fw, goalWH);              // left post
+      ctx.fillRect((goalR + 1) * cw - fw, goalTopY, fw, goalWH);   // right post
+      ctx.fillRect(goalL * cw, goalTopY, doorW, fw);                // lintel
+      // Floating green particles rising from base
+      const t3 = Date.now() / 1600;
+      for (let p = 0; p < 6; p++) {
+        const frac = (t3 + p * 0.167) % 1;
+        const px   = goalL * cw + doorW * ((p + 0.5) / 6);
+        const py   = (goalTopY + goalWH) - frac * Math.min(goalWH * 0.72, 58);
+        ctx.fillStyle = `rgba(80,255,100,${lit * (0.22 + 0.78 * (1 - frac))})`;
+        ctx.fillRect(px - 1, py, 2, 3);
+      }
     }
     // Sewer: occasional drip dots at floor level
     if (theme === 'sewer') {
@@ -298,6 +318,28 @@ export function draw(lit, bob, outline) {
       ctx.fillRect(bsx - bw * 0.36, bCy - bh * 0.32, bw * 0.72, bh * 0.58);
 
       ctx.restore();
+    }
+  }
+
+  // Exit door ambient glow — faint green visible in darkness up to ~4.5 units
+  {
+    const exitX = state.COLS - 1.5, exitY = state.ROWS - 1.5;
+    const eDx   = exitX - P.x, eDy = exitY - P.y;
+    const eDist = Math.sqrt(eDx * eDx + eDy * eDy);
+    if (eDist > 0.1 && eDist < 4.5) {
+      let eA = Math.atan2(eDy, eDx) - P.angle;
+      while (eA >  Math.PI) eA -= Math.PI * 2;
+      while (eA < -Math.PI) eA += Math.PI * 2;
+      if (Math.abs(eA) <= HFOV * 1.35) {
+        const esx    = W / 2 + (eA / HFOV) * (W / 2);
+        const eglow  = Math.pow(Math.max(0, 1 - eDist / 4.5), 2.2) * 0.40
+                     * (0.65 + 0.35 * Math.sin(now * 0.003));
+        const egrd   = ctx.createRadialGradient(esx, H / 2, 0, esx, H / 2, H * 0.38);
+        egrd.addColorStop(0,   `rgba(20,220,60,${eglow})`);
+        egrd.addColorStop(0.4, `rgba(10,150,28,${eglow * 0.38})`);
+        egrd.addColorStop(1,   'transparent');
+        ctx.fillStyle = egrd; ctx.fillRect(esx - H * 0.4, 0, H * 0.8, H);
+      }
     }
   }
 
@@ -575,6 +617,72 @@ export function draw(lit, bob, outline) {
     ctx.restore();
   }
 
+  // Extra stalkers (level 9+) — pinkish-red eyes, same sprite as main enemy
+  for (const es of state.extraStalkers) {
+    const esdx = es.x - P.x, esdy = es.y - P.y;
+    const esdist = Math.sqrt(esdx * esdx + esdy * esdy);
+    if (esdist < 0.1) continue;
+    let esa = Math.atan2(esdy, esdx) - P.angle;
+    while (esa >  Math.PI) esa -= Math.PI * 2;
+    while (esa < -Math.PI) esa += Math.PI * 2;
+    if (Math.abs(esa) > HFOV * 1.35) continue;
+    const essx = W / 2 + (esa / HFOV) * (W / 2);
+    const esph = Math.min(H * 1.65 / esdist, H * 3.5);
+    const espulse = 0.55 + 0.45 * Math.sin(Date.now() * 0.004 + es.x);
+    if (esdist < 5.5) {
+      const esea = Math.pow(1 - esdist / 5.5, 2.2) * 0.90 * espulse;
+      if (esea > 0.01) {
+        const esey = H / 2 - esph * 0.38 + hs;
+        const esesz = Math.max(1.5, esph * 0.036), eseo = Math.max(2.5, esph * 0.088);
+        [essx - eseo, essx + eseo].forEach(ex => {
+          const eg = ctx.createRadialGradient(ex, esey, 0, ex, esey, esesz * 4.5);
+          eg.addColorStop(0,   `rgba(255,20,80,${esea})`);
+          eg.addColorStop(0.5, `rgba(180,0,50,${esea * 0.4})`);
+          eg.addColorStop(1,   'transparent');
+          ctx.fillStyle = eg; ctx.fillRect(ex - esesz * 6, esey - esesz * 6, esesz * 12, esesz * 12);
+          ctx.fillStyle = `rgba(255,205,215,${Math.min(1, esea * 1.3)})`;
+          ctx.beginPath(); ctx.arc(ex, esey, esesz * 0.75, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+    }
+    if (lit > 0) {
+      const essw = esph * 0.58, esprX = essx - essw / 2, esprY = H / 2 - esph * 0.5 + hs;
+      const esc0 = Math.max(0, (esprX / W * NR) | 0), esc1 = Math.min(NR - 1, ((esprX + essw) / W * NR) | 0);
+      ctx.save(); ctx.beginPath();
+      for (let sc = esc0; sc <= esc1; sc++) if (zb[sc] > esdist) ctx.rect(sc * cw, 0, cw + 1, H);
+      ctx.clip();
+      const esba = Math.min(1, lit * 1.1) * Math.min(1, 5 / esdist);
+      ctx.fillStyle = `rgba(5,1,3,${esba})`;
+      ctx.fillRect(esprX + essw * 0.23, esprY + esph * 0.2, essw * 0.54, esph * 0.76);
+      ctx.fillStyle = `rgba(8,2,5,${esba})`;
+      ctx.beginPath(); ctx.ellipse(essx, esprY + esph * 0.13, essw * 0.26, esph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      const esela = Math.min(1, lit * 1.3) * espulse;
+      const esesz2 = Math.max(1.5, esph * 0.036), eseo2 = Math.max(2, esph * 0.088), esey2 = esprY + esph * 0.1;
+      [essx - eseo2, essx + eseo2].forEach(ex => {
+        const eg = ctx.createRadialGradient(ex, esey2, 0, ex, esey2, esesz2 * 3.5);
+        eg.addColorStop(0, `rgba(255,30,100,${esela})`); eg.addColorStop(1, 'transparent');
+        ctx.fillStyle = eg; ctx.fillRect(ex - esesz2 * 4, esey2 - esesz2 * 4, esesz2 * 8, esesz2 * 8);
+        ctx.fillStyle = `rgba(255,200,215,${esela})`;
+        ctx.beginPath(); ctx.arc(ex, esey2, esesz2, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.restore();
+    }
+  }
+
+  // Cursed flash — red overlay + deep crimson edge burn
+  if (state.cursedFlash && lit > 0) {
+    ctx.fillStyle = 'rgba(175,0,0,0.26)'; ctx.fillRect(0, 0, W, H);
+    const cv2 = ctx.createRadialGradient(W / 2, H / 2, H * 0.14, W / 2, H / 2, H * 0.96);
+    cv2.addColorStop(0, 'transparent');
+    cv2.addColorStop(1, 'rgba(215,0,0,0.68)');
+    ctx.fillStyle = cv2; ctx.fillRect(0, 0, W, H);
+  }
+  // Camera burn from previous cursed flash (subtle red tint on next 3 flashes)
+  if (state.cursedBurnCount > 0 && lit > 0) {
+    ctx.fillStyle = `rgba(160,0,0,${state.cursedBurnCount * 0.032})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
   // Vignette + flash burst + scanlines
   if (lit > 0) {
     const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.18, W / 2, H / 2, H * 0.88);
@@ -634,9 +742,14 @@ export function draw(lit, bob, outline) {
     ctx.fillRect(mx2 - 4, my2 - 4, mw + 8, mh + 8);
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       const cv = MAP[r][c];
-      ctx.fillStyle = cv === 1 ? '#150808' : cv === 2 ? '#005518' : '#0e0808';
+      // Exit cell: dark fill only (outline drawn separately)
+      ctx.fillStyle = cv === 1 ? '#150808' : cv === 2 ? '#051a08' : '#0e0808';
       ctx.fillRect(mx2 + c * ms, my2 + r * ms, ms, ms);
     }
+    // Exit door: bright green outline instead of filled square
+    ctx.strokeStyle = '#22ee44'; ctx.lineWidth = 1;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++)
+      if (MAP[r][c] === 2) ctx.strokeRect(mx2 + c * ms + 0.5, my2 + r * ms + 0.5, ms - 1, ms - 1);
     ctx.fillStyle = '#ffffff'; ctx.fillRect(mx2 + P.x * ms - 1.5, my2 + P.y * ms - 1.5, 3, 3);
     ctx.fillStyle = '#ff2020'; ctx.fillRect(mx2 + E.x * ms - 1.5, my2 + E.y * ms - 1.5, 3, 3);
     ctx.fillStyle = '#ffcc22';
@@ -648,6 +761,10 @@ export function draw(lit, bob, outline) {
     if (state.level >= 5 && state.B.active) {
       ctx.fillStyle = '#404040';
       ctx.fillRect(mx2 + state.B.x * ms - 1.5, my2 + state.B.y * ms - 1.5, 3, 3);
+    }
+    for (const es of state.extraStalkers) {
+      ctx.fillStyle = '#cc3366';
+      ctx.fillRect(mx2 + es.x * ms - 1.5, my2 + es.y * ms - 1.5, 3, 3);
     }
     for (const web of state.webs) if (!web.hit) {
       ctx.fillStyle = 'rgba(255,255,255,0.28)';

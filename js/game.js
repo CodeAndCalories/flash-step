@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick } from './audio.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw } from './renderer.js';
-import { stepEnemy, stepMimic, stepBlindOne, checkEnd, isWall } from './enemy.js';
+import { stepEnemy, stepMimic, stepBlindOne, stepEntity, checkEnd, isWall } from './enemy.js';
 
 const NOTE_TEXTS = [
   "I dropped my torch. I can still hear it rolling.",
@@ -34,7 +34,7 @@ function resize() {
 
 function initGame() {
   resize();
-  const sz = Math.min(9 + state.level * 2, 23);
+  const sz = Math.min(9 + state.level * 2, 29);
   const s  = sz % 2 === 0 ? sz + 1 : sz;
   const { g, cols, rows } = genMaze(s, s);
   state.MAP = g; state.COLS = cols; state.ROWS = rows;
@@ -60,8 +60,10 @@ function initGame() {
   const [ec, er] = cands[Math.random() * Math.min(cands.length, Math.max(1, cands.length * 0.2)) | 0];
   state.E.x = ec + 0.5; state.E.y = er + 0.5; state.E.moveTimer = 0;
 
-  state.ENEMY_MS     = Math.max(1100 - state.level * 80, 420);
-  state.baseEnemyMS  = state.ENEMY_MS;
+  // Speed scales 5 % faster each level after level 3
+  const speedMult   = state.level > 3 ? Math.pow(0.95, state.level - 3) : 1.0;
+  state.ENEMY_MS    = Math.max(150, Math.round((1100 - state.level * 80) * speedMult));
+  state.baseEnemyMS = state.ENEMY_MS;
 
   // Spawn battery pickups on random open floor cells
   const numBatteries = Math.min(3 + Math.floor(state.level / 2), 7);
@@ -78,8 +80,15 @@ function initGame() {
   state.note = restCells.length > 0 ? { x: restCells[0][0] + 0.5, y: restCells[0][1] + 0.5 } : null;
   state.webs = restCells.slice(1, 4).map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, hit: false }));
 
-  // Blind One (level 5+) — spawn at cell farthest from main enemy
-  if (state.level >= 5) {
+  // Enemy activation per level bracket
+  // 1-2: Stalker only | 3-4: +Mimic | 5-6: +Blind One (Mimic absent) | 7+: all three
+  const useMimic = (state.level >= 3 && state.level <= 4) || state.level >= 7;
+  const useBlind = state.level >= 5;
+
+  if (!useMimic) state.M = { x: 0, y: 0, active: false, moveTimer: 0 };
+
+  // Blind One — spawn at cell farthest from main enemy
+  if (useBlind) {
     const bpass = (c, r) => state.MAP[r][c] !== 1;
     const bdm = bfs(bpass, cols, rows, ec | 0, er | 0);
     let bbest = -1, bcands = [];
@@ -95,6 +104,10 @@ function initGame() {
   } else {
     state.B = { x: 0, y: 0, active: false, moveTimer: 0, lostTimer: 0 };
   }
+
+  // Extra stalkers (level 9+)
+  state.extraStalkers  = [];
+  state.extraSpawnTimer = state.level >= 9 ? 45000 : 0;
 
   // Place decoy eyes in dead ends far from the player start
   const deadEnds = findDeadEnds(state.MAP, cols, rows);
@@ -122,6 +135,9 @@ function initGame() {
   state.batCooldown     = 5000; state.bat = null; state.rat = null;
   state.lastPlayerCell  = { c: 1, r: 1 }; state.webEffect = null;
   state.stamina         = 1.0;  state.sprinting = false;
+  state.cursedFlash     = false; state.cursedTimer = 0; state.cursedBurnCount = 0;
+  state.cursedDrainAccum = 0;   state.cursedEnemyTimer = 0;
+  state.spawnWarning    = null;
   resetPanicAudio();
   updateUI();
 }
@@ -203,6 +219,38 @@ function loop(ts) {
         state.ENEMY_MS = peakMS + (state.baseEnemyMS - peakMS) * t;
       }
     }
+  }
+
+  // Cursed flash override — strobes uncontrollably, enemies max speed
+  if (state.cursedFlash) {
+    state.cursedTimer -= dt;
+    state.flashHeld    = true;
+    // Strobe at ~4 Hz (125 ms per half-cycle)
+    state.flashAlpha   = Math.floor(Date.now() / 125) % 2 ? 0.92 : 0.04;
+    state.flashDecay   = state.flashAlpha;
+    state.outlineAlpha = 1;
+    state.ENEMY_MS     = 150;
+    // Extra stamina drain (3× rate)
+    state.stamina = Math.max(0, state.stamina - dt * 2 / 4000);
+    // 3 battery drains over duration (~1 per 3.3 s)
+    state.cursedDrainAccum += dt;
+    while (state.cursedDrainAccum >= 3333) {
+      state.cursedDrainAccum -= 3333;
+      state.flashCount = Math.max(0, state.flashCount - 1);
+    }
+    if (state.cursedTimer <= 0) {
+      state.cursedFlash     = false;
+      state.flashHeld       = false;
+      state.flashAlpha      = 0;
+      state.flashDecay      = 0;
+      state.cursedBurnCount = 3;
+      state.cursedEnemyTimer = 3000;
+    }
+  }
+  // Post-cursed: enemies stay fast for 3 s then return to base speed
+  if (!state.cursedFlash && state.cursedEnemyTimer > 0) {
+    state.cursedEnemyTimer -= dt;
+    state.ENEMY_MS = state.cursedEnemyTimer > 0 ? 150 : state.baseEnemyMS;
   }
 
   // Snapshot enemy on flash release → afterimage
@@ -397,6 +445,37 @@ function loop(ts) {
   }
   if (state.minimapTimer > 0) state.minimapTimer -= dt / 1000;
 
+  // Extra stalkers (level 9+) — spawn + move
+  if (state.level >= 9) {
+    if (state.extraStalkers.length < 3) {
+      state.extraSpawnTimer -= dt;
+      if (state.extraSpawnTimer <= 0) {
+        state.extraSpawnTimer = 45000;
+        // Spawn at farthest open cell from player
+        const epass = (c, r) => state.MAP[r][c] !== 1;
+        const edm   = bfs(epass, state.COLS, state.ROWS, state.P.x | 0, state.P.y | 0);
+        let ebest = -1, ecands = [];
+        for (let r2 = 1; r2 < state.ROWS - 1; r2++) for (let c2 = 1; c2 < state.COLS - 1; c2++) {
+          if (state.MAP[r2][c2] !== 0) continue;
+          const d = edm[r2][c2];
+          if (d > ebest) { ebest = d; ecands = []; }
+          if (d === ebest) ecands.push([c2, r2]);
+        }
+        shuf(ecands);
+        const [ec2, er2] = ecands[0] || [1, 1];
+        const idx = state.extraStalkers.length;
+        state.extraStalkers.push({ x: ec2 + 0.5, y: er2 + 0.5, moveTimer: 0, speedMult: 1 + idx * 0.18 });
+        state.spawnWarning = { timer: 2200 };
+      }
+    }
+    for (const es of state.extraStalkers) {
+      es.moveTimer += dt;
+      const esMS = Math.max(150, Math.round(state.ENEMY_MS / es.speedMult));
+      while (es.moveTimer >= esMS) { es.moveTimer -= esMS; stepEntity(es); }
+    }
+  }
+  if (state.spawnWarning) { state.spawnWarning.timer -= dt; if (state.spawnWarning.timer <= 0) state.spawnWarning = null; }
+
   // Player history recording + Mimic path-following (level 3+)
   if (state.level >= 3) {
     state.historyTimer += dt;
@@ -517,6 +596,12 @@ function updateUI() {
   // Notes counter (appears after first note)
   const sNotes = document.getElementById('s-notes');
   if (sNotes) sNotes.textContent = state.collectedNotes.length > 0 ? `NOTES: ${state.collectedNotes.length}` : '';
+  // Cursed flash warning
+  const sCursed = document.getElementById('s-cursed');
+  if (sCursed) sCursed.style.display = state.cursedFlash ? 'block' : 'none';
+  // Spawn warning
+  const sSpawned = document.getElementById('s-spawned');
+  if (sSpawned) sSpawned.style.display = state.spawnWarning ? 'block' : 'none';
   // Stamina bar
   const sBar = document.getElementById('stamina-bar');
   const sFill = document.getElementById('stamina-fill');
@@ -594,8 +679,21 @@ applyControlScheme();
 
 function startFlash() {
   if (state.gameState !== 'playing') return;
+  if (state.cursedFlash) return;              // already cursed, can't override
   if (state.flashCount <= 0) { playEmpty(); return; }
-  if (!state.flashHeld) { state.flashCount--; playShutter(); }
+  if (!state.flashHeld) {
+    state.flashCount--;
+    if (state.cursedBurnCount > 0) state.cursedBurnCount--;  // consume one camera-burn charge
+    if (Math.random() < 1 / 40) {
+      // Cursed flash — single red frame then strobe begins
+      state.cursedFlash      = true;
+      state.cursedTimer      = 10000 + Math.random() * 2000;
+      state.cursedDrainAccum = 0;
+      playCursedFlash();
+    } else {
+      playShutter();
+    }
+  }
   state.flashHeld = true;
 }
 function stopFlash() { state.flashHeld = false; }
