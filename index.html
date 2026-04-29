@@ -13,6 +13,7 @@
   <div style="text-align:center;pointer-events:none">
     <div class="stat" id="s-level">LEVEL 1</div>
     <div id="s-moving">● MOVING</div>
+    <div id="s-notes" class="stat-small"></div>
   </div>
   <div class="stat" style="text-align:right" id="s-dist">DIST<br>—</div>
 </div>
@@ -85,6 +86,7 @@
     <nav class="menu-nav">
       <button class="menu-btn" id="pause-resume">RESUME</button>
       <button class="menu-btn" id="pause-options-btn">OPTIONS</button>
+      <button class="menu-btn" id="pause-notes-btn">NOTES</button>
       <button class="menu-btn" id="pause-quit">QUIT TO MENU</button>
     </nav>
   </div>
@@ -116,6 +118,12 @@
     <button class="menu-btn menu-btn--back" id="pause-opts-back">← BACK</button>
   </div>
 
+  <div id="pause-notes" class="pause-panel">
+    <h2 class="menu-panel-title">NOTES</h2>
+    <div id="pause-notes-list"></div>
+    <button class="menu-btn menu-btn--back" id="pause-notes-back">← BACK</button>
+  </div>
+
 </div>
 
 <!-- ── Death / win screen ───────────────────────────────────── -->
@@ -142,6 +150,14 @@
   <div class="tb" id="b-turnR">↻</div>
 </div>
 <button id="flash-btn"><span class="fi">⚡</span>FLASH</button>
+
+<div id="stamina-bar"><div id="stamina-fill"></div></div>
+
+<div id="note-display">
+  <div id="note-paper">
+    <p id="note-text"></p>
+  </div>
+</div>
 
 <div id="mouse-prompt">
   <span>CLICK TO CAPTURE MOUSE</span>

@@ -38,7 +38,7 @@ export const state = {
   minimapTimer: 0,
 
   keys: {},
-  dpad: { fwd: false, back: false, turnL: false, turnR: false },
+  dpad: { fwd: false, back: false, turnL: false, turnR: false, sprint: false },
   lookStart: null,
   lookDelta: 0,
   batteries: [],
@@ -56,4 +56,23 @@ export const state = {
   mimicSoundTimer: 0,
   afterimage:      null,
   lastKnownEnemy:  null,
+  // Notes
+  note:            null,
+  noteCollected:   false,
+  collectedNotes:  [],
+  noteDisplay:     null,
+  // Blind One
+  B:               { x: 0, y: 0, active: false, moveTimer: 0, lostTimer: 0 },
+  lastHeardPos:    null,
+  blindSoundTimer: 0,
+  // Jump scares
+  batCooldown:     0,
+  bat:             null,
+  rat:             null,
+  lastPlayerCell:  null,
+  webs:            [],
+  webEffect:       null,
+  // Sprint / stamina
+  stamina:         1.0,
+  sprinting:       false,
 };

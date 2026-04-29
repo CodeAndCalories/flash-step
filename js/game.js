@@ -1,9 +1,26 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse } from './audio.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw } from './renderer.js';
-import { stepEnemy, stepMimic, checkEnd, isWall } from './enemy.js';
+import { stepEnemy, stepMimic, stepBlindOne, checkEnd, isWall } from './enemy.js';
+
+const NOTE_TEXTS = [
+  "I dropped my torch. I can still hear it rolling.",
+  "Something moved when the flash went off. I told myself it was my shadow.",
+  "It's learning. It waited exactly where I stopped last time.",
+  "I found someone else's footprints. They stopped in the middle of the corridor.",
+  "It doesn't have eyes. I don't know how it finds me.",
+  "I've started seeing myself in the walls. I don't think that's me anymore.",
+  "There are two of them now. One follows my steps. One follows my mistakes.",
+  "The flash is changing. Sometimes it comes out wrong. Red.",
+  "I found the exit once. It wasn't where it should have been.",
+  "I think I've been here before. I think I am the thing they're running from.",
+];
+function getNoteText(lvl) {
+  const idx = (lvl - 1) % NOTE_TEXTS.length;
+  return lvl > NOTE_TEXTS.length ? `[Page ${lvl}]\n${NOTE_TEXTS[idx]}` : NOTE_TEXTS[idx];
+}
 
 const MOVE_SPD   = 3.2;
 const TURN_SPD   = 2.5;
@@ -55,6 +72,30 @@ function initGame() {
   shuf(openCells);
   state.batteries = openCells.slice(0, numBatteries).map(([c, r]) => ({ x: c + 0.5, y: r + 0.5 }));
 
+  // Note + webs (cells not already used for batteries)
+  const restCells = openCells.slice(numBatteries);
+  shuf(restCells);
+  state.note = restCells.length > 0 ? { x: restCells[0][0] + 0.5, y: restCells[0][1] + 0.5 } : null;
+  state.webs = restCells.slice(1, 4).map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, hit: false }));
+
+  // Blind One (level 5+) — spawn at cell farthest from main enemy
+  if (state.level >= 5) {
+    const bpass = (c, r) => state.MAP[r][c] !== 1;
+    const bdm = bfs(bpass, cols, rows, ec | 0, er | 0);
+    let bbest = -1, bcands = [];
+    for (let r2 = 1; r2 < rows - 1; r2++) for (let c2 = 1; c2 < cols - 1; c2++) {
+      if (state.MAP[r2][c2] !== 0) continue;
+      const d = bdm[r2][c2];
+      if (d > bbest) { bbest = d; bcands = []; }
+      if (d === bbest) bcands.push([c2, r2]);
+    }
+    shuf(bcands);
+    const [bc2, br2] = bcands[0] || [cols - 2, rows - 2];
+    state.B = { x: bc2 + 0.5, y: br2 + 0.5, active: true, moveTimer: 0, lostTimer: 0 };
+  } else {
+    state.B = { x: 0, y: 0, active: false, moveTimer: 0, lostTimer: 0 };
+  }
+
   // Place decoy eyes in dead ends far from the player start
   const deadEnds = findDeadEnds(state.MAP, cols, rows);
   const numDecoys = Math.min(2 + Math.floor(state.level / 3), 5);
@@ -76,6 +117,11 @@ function initGame() {
   state.M               = { x: 1.5, y: 1.5, active: false, moveTimer: 0 };
   state.mimicSoundTimer  = 0;
   state.afterimage      = null; state.lastKnownEnemy = null;
+  state.lastHeardPos    = null; state.blindSoundTimer = 0;
+  state.noteCollected   = false; state.noteDisplay = null;
+  state.batCooldown     = 5000; state.bat = null; state.rat = null;
+  state.lastPlayerCell  = { c: 1, r: 1 }; state.webEffect = null;
+  state.stamina         = 1.0;  state.sprinting = false;
   resetPanicAudio();
   updateUI();
 }
@@ -189,9 +235,22 @@ function loop(ts) {
     ? (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0)
     : 0;
 
+  // Sprint / stamina
+  state.sprinting = !!(keys['shift'] || dpad.sprint) && state.stamina > 0 && (fwd !== 0 || strafe !== 0);
+  if (state.sprinting) {
+    let drain = dt / 4000;
+    if (state.panicLevel > 0) drain *= 1.5;
+    state.stamina = Math.max(0, state.stamina - drain);
+  } else {
+    const regen = (fwd === 0 && strafe === 0) ? dt / 4000 : dt / 8000;
+    state.stamina = Math.min(1, state.stamina + regen);
+  }
+  const inWeb  = !!state.webEffect;
+  const effSPD = inWeb ? MOVE_SPD * 0.4 : state.sprinting ? MOVE_SPD * 1.9 : MOVE_SPD;
+
   state.isMoving = false;
   if (fwd !== 0 || strafe !== 0) {
-    const spd = MOVE_SPD * dt / 1000;
+    const spd = effSPD * dt / 1000;
     if (fwd !== 0) {
       const nx = P.x + Math.cos(P.angle) * spd * fwd;
       const ny = P.y + Math.sin(P.angle) * spd * fwd;
@@ -199,7 +258,6 @@ function loop(ts) {
       if (!isWall(P.x, ny)) P.y = ny;
     }
     if (strafe !== 0) {
-      // Perpendicular direction: right = (-sin θ, cos θ)
       const sx = -Math.sin(P.angle) * spd * strafe;
       const sy =  Math.cos(P.angle) * spd * strafe;
       if (!isWall(P.x + sx, P.y)) P.x += sx;
@@ -208,8 +266,10 @@ function loop(ts) {
     state.bobTimer    += dt * 0.009;
     state.isMoving     = true;
     state.footstepTimer -= dt;
-    if (state.footstepTimer <= 0) { playFootstep(); state.footstepTimer = 370; }
-    // Record breadcrumb every ~0.35 world units of travel
+    if (state.footstepTimer <= 0) {
+      playFootstep();
+      state.footstepTimer = state.sprinting ? 230 : 370;
+    }
     const last = state.crumbs[state.crumbs.length - 1];
     if (!last || (P.x - last.x) ** 2 + (P.y - last.y) ** 2 > 0.12) {
       if (state.crumbs.length >= 250) state.crumbs.shift();
@@ -229,6 +289,105 @@ function loop(ts) {
     }
     return true;
   });
+
+  // Note collection + typewriter timer
+  if (state.note && !state.noteCollected) {
+    const ndx = P.x - state.note.x, ndy = P.y - state.note.y;
+    if (ndx * ndx + ndy * ndy < 0.25) {
+      state.noteCollected = true;
+      if (!state.collectedNotes.includes(state.level)) state.collectedNotes.push(state.level);
+      playPaperRustle();
+      state.noteDisplay = { text: getNoteText(state.level), chars: 0, timer: 4000, alpha: 1 };
+    }
+  }
+  if (state.noteDisplay) {
+    state.noteDisplay.timer -= dt;
+    if (state.noteDisplay.timer <= 0) { state.noteDisplay = null; }
+    else {
+      const elapsed = 4000 - state.noteDisplay.timer;
+      state.noteDisplay.chars = Math.min(state.noteDisplay.text.length, Math.floor(elapsed / 55));
+      state.noteDisplay.alpha = state.noteDisplay.timer < 800 ? state.noteDisplay.timer / 800 : 1;
+    }
+  }
+
+  // Bat random scare (2 % per second, 15 s cooldown)
+  if (state.batCooldown > 0) { state.batCooldown -= dt; }
+  else if (!state.bat && Math.random() < 0.02 * dt / 1000) {
+    state.bat = { t: 0, dir: Math.random() < 0.5 ? 1 : -1 };
+    state.batCooldown = 15000;
+    playBatScreech();
+  }
+  if (state.bat) { state.bat.t += dt / 600; if (state.bat.t >= 1) state.bat = null; }
+
+  // Rat trigger on cell change (1.5 % chance)
+  const pCell = { c: P.x | 0, r: P.y | 0 };
+  if (state.lastPlayerCell &&
+      (pCell.c !== state.lastPlayerCell.c || pCell.r !== state.lastPlayerCell.r)) {
+    if (Math.random() < 0.015) {
+      state.rat = {
+        wx: (state.lastPlayerCell.c + 0.5) + (Math.random() - 0.5) * 0.4,
+        wy: (state.lastPlayerCell.r + 0.5) + (Math.random() - 0.5) * 0.4,
+        vx: (pCell.c - state.lastPlayerCell.c) * 2.4,
+        vy: (pCell.r - state.lastPlayerCell.r) * 2.4,
+        life: 1.0
+      };
+      playRatSkitter();
+    }
+  }
+  state.lastPlayerCell = pCell;
+  if (state.rat) {
+    state.rat.wx  += state.rat.vx * dt / 1000;
+    state.rat.wy  += state.rat.vy * dt / 1000;
+    state.rat.life -= dt / 1000;
+    if (state.rat.life <= 0) state.rat = null;
+  }
+
+  // Web collision + effect timer
+  for (const web of state.webs) {
+    if (!web.hit) {
+      const wdx = P.x - web.x, wdy = P.y - web.y;
+      if (wdx * wdx + wdy * wdy < 0.36) { web.hit = true; state.webEffect = { timer: 2000 }; playWebStick(); }
+    }
+  }
+  if (state.webEffect) { state.webEffect.timer -= dt; if (state.webEffect.timer <= 0) state.webEffect = null; }
+
+  // Blind One — tracks footstep sound, not player position
+  if (state.level >= 5 && state.B.active) {
+    const bdx = P.x - state.B.x, bdy = P.y - state.B.y;
+    const bdist = Math.sqrt(bdx * bdx + bdy * bdy);
+    const soundR = state.sprinting ? 6 : state.isMoving ? 3 : 0;
+    if (soundR > 0 && bdist < soundR) {
+      state.lastHeardPos = { x: P.x, y: P.y }; state.B.lostTimer = 0;
+    } else if (!state.isMoving) {
+      state.B.lostTimer += dt;
+      if (state.B.lostTimer >= 2000) state.lastHeardPos = null;
+    }
+    // Sprint reaction: if sprinting within 6 units, immediately lock on at fast speed
+    if (state.sprinting && bdist < 6) state.lastHeardPos = { x: P.x, y: P.y };
+    const blindMS = (state.sprinting && bdist < 6 && state.lastHeardPos) ? 340 : 780;
+    state.B.moveTimer += dt;
+    while (state.B.moveTimer >= blindMS) {
+      state.B.moveTimer -= blindMS;
+      stepBlindOne();
+      if (state.lastHeardPos) {
+        const gc = state.B.x | 0, gr = state.B.y | 0;
+        if (gc === (state.lastHeardPos.x | 0) && gr === (state.lastHeardPos.y | 0))
+          state.lastHeardPos = null;
+      }
+    }
+    // Echolocation click sound
+    state.blindSoundTimer -= dt;
+    if (state.blindSoundTimer <= 0) {
+      const bRate = bdist < 3 ? 3 : bdist < 6 ? 2 : bdist < 10 ? 1 : 0;
+      if (bRate > 0) {
+        let bAng = Math.atan2(state.B.y - P.y, state.B.x - P.x) - P.angle;
+        while (bAng >  Math.PI) bAng -= Math.PI * 2;
+        while (bAng < -Math.PI) bAng += Math.PI * 2;
+        playBlindClick(Math.sin(bAng) * 0.8, bRate);
+        state.blindSoundTimer = Math.max(260, 780 / bRate);
+      } else state.blindSoundTimer = 600;
+    }
+  }
 
   // Enemy moves only while flash is on
   if (state.flashAlpha > 0.04) {
@@ -346,6 +505,28 @@ function updateUI() {
   const locked = document.pointerLockElement === state.canvas;
   document.getElementById('mouse-prompt').style.display =
     (isMouseMode() && state.gameState === 'playing' && !state.paused && !locked) ? 'flex' : 'none';
+  // Note display typewriter
+  const noteEl = document.getElementById('note-display');
+  if (noteEl) {
+    if (state.noteDisplay && !state.paused) {
+      noteEl.style.display = 'flex'; noteEl.style.opacity = state.noteDisplay.alpha;
+      document.getElementById('note-text').textContent =
+        state.noteDisplay.text.substring(0, state.noteDisplay.chars);
+    } else noteEl.style.display = 'none';
+  }
+  // Notes counter (appears after first note)
+  const sNotes = document.getElementById('s-notes');
+  if (sNotes) sNotes.textContent = state.collectedNotes.length > 0 ? `NOTES: ${state.collectedNotes.length}` : '';
+  // Stamina bar
+  const sBar = document.getElementById('stamina-bar');
+  const sFill = document.getElementById('stamina-fill');
+  if (sBar && sFill) {
+    const showBar = (state.sprinting || state.stamina < 0.99) && state.gameState === 'playing' && !state.paused;
+    sBar.style.display = showBar ? 'block' : 'none';
+    sFill.style.width  = `${Math.max(0, state.stamina) * 100}%`;
+    sFill.style.background = state.stamina > 0.3 ? 'rgba(255,255,255,0.5)'
+      : state.stamina > 0.1 ? 'rgba(255,140,0,0.65)' : 'rgba(255,40,40,0.70)';
+  }
 }
 
 function showMsg(type) {
@@ -423,10 +604,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     e.preventDefault();
     if (state.paused) {
-      // Escape inside pause-options goes back a level; otherwise fully resumes
-      document.getElementById('pause-opts').classList.contains('active')
-        ? showPausePanel('pause-main')
-        : resumeGame();
+      const ap = document.querySelector('.pause-panel.active');
+      (ap && ap.id !== 'pause-main') ? showPausePanel('pause-main') : resumeGame();
     } else if (state.gameState === 'playing') {
       pauseGame();
     }
@@ -458,6 +637,17 @@ dBtn('b-fwd',   'fwd');
 dBtn('b-back',  'back');
 dBtn('b-turnL', 'turnL');
 dBtn('b-turnR', 'turnR');
+
+// Mobile sprint via double-tap on forward button
+{
+  let lastFwdTap = 0;
+  document.getElementById('b-fwd').addEventListener('touchstart', () => {
+    const now = Date.now();
+    if (now - lastFwdTap < 300) state.dpad.sprint = true;
+    lastFwdTap = now;
+  }, { passive: true });
+  document.getElementById('b-fwd').addEventListener('touchend', () => { state.dpad.sprint = false; }, { passive: true });
+}
 
 // Swipe-to-look on the canvas centre strip
 state.canvas.addEventListener('touchstart', e => {
@@ -520,6 +710,17 @@ document.getElementById('retry-btn').addEventListener('click', () => {
 // ── Pause panel buttons ────────────────────────────────────────────────────────
 
 document.getElementById('pause-resume').addEventListener('click', resumeGame);
+
+document.getElementById('pause-notes-btn').addEventListener('click', () => {
+  const list = document.getElementById('pause-notes-list');
+  list.innerHTML = state.collectedNotes.length === 0
+    ? '<p class="notes-empty">No notes found yet.</p>'
+    : state.collectedNotes.slice().sort((a, b) => a - b)
+        .map(lvl => `<div class="note-entry"><span class="note-lvl">LEVEL ${lvl}</span><p class="note-body">${getNoteText(lvl)}</p></div>`)
+        .join('');
+  showPausePanel('pause-notes');
+});
+document.getElementById('pause-notes-back').addEventListener('click', () => showPausePanel('pause-main'));
 
 document.getElementById('pause-options-btn').addEventListener('click', () => {
   document.getElementById('p-opt-volume').value = settings.masterVolume;
