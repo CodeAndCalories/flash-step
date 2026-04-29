@@ -587,7 +587,7 @@ export function draw(lit, bob, outline) {
 
   // Full sprite render when flash is on
   if (es && lit > 0) {
-    state.lastKnownEnemy = { wx: E.x, wy: E.y };   // snapshot for afterimage
+    state.lastKnownE = { wx: E.x, wy: E.y };   // snapshot for afterimage
     const { sx, dist: d, ph } = es;
     const sw = ph * 0.58, sprX = sx - sw / 2, sprY = H / 2 - ph * 0.5 + hs;
     const sc0 = Math.max(0, (sprX / W * NR) | 0), sc1 = Math.min(NR - 1, ((sprX + sw) / W * NR) | 0);
@@ -629,33 +629,38 @@ export function draw(lit, bob, outline) {
     ctx.restore();
   }
 
-  // Afterimage — fading ghost at last-seen enemy world position (no depth test = shows through walls)
-  if (state.afterimage) {
-    const ai = state.afterimage;
+  // Afterimages — one per enemy, no eyes, deterministic grain for VHS-static feel
+  for (const ai of state.afterimages) {
+    if (ai.alpha <= 0) continue;
     const adx = ai.wx - P.x, ady = ai.wy - P.y;
     const adist = Math.sqrt(adx * adx + ady * ady);
-    if (adist > 0.1) {
-      let aa = Math.atan2(ady, adx) - P.angle;
-      while (aa >  Math.PI) aa -= Math.PI * 2;
-      while (aa < -Math.PI) aa += Math.PI * 2;
-      if (Math.abs(aa) <= HFOV * 1.35) {
-        const asx = W / 2 + (aa / HFOV) * (W / 2);
-        const aph = Math.min(H * 1.65 / adist, H * 3.5);
-        const asw = aph * 0.58, asprX = asx - asw / 2, asprY = H / 2 - aph * 0.5 + hs;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(ai.alpha, 0.15));
-        ctx.fillStyle = 'rgba(160,20,20,1)';
-        ctx.fillRect(asprX + asw * 0.23, asprY + aph * 0.2, asw * 0.54, aph * 0.76);
-        ctx.beginPath(); ctx.ellipse(asx, asprY + aph * 0.13, asw * 0.26, aph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,150,150,1)';
-        const aesz = Math.max(1.5, aph * 0.036), aeo = Math.max(2, aph * 0.088), aey = asprY + aph * 0.1;
-        [asx - aeo, asx + aeo].forEach(ex => {
-          ctx.beginPath(); ctx.arc(ex, aey, aesz, 0, Math.PI * 2); ctx.fill();
-        });
-        ctx.globalAlpha = 1;
-        ctx.restore();
-      }
+    if (adist < 0.1) continue;
+    let aa = Math.atan2(ady, adx) - P.angle;
+    while (aa >  Math.PI) aa -= Math.PI * 2;
+    while (aa < -Math.PI) aa += Math.PI * 2;
+    if (Math.abs(aa) > HFOV * 1.35) continue;
+    const asx  = W / 2 + (aa / HFOV) * (W / 2);
+    const aph  = Math.min(H * 1.65 / adist, H * 3.5);
+    const asw  = aph * 0.58, asprX = asx - asw / 2, asprY = H / 2 - aph * 0.5 + hs;
+    const alpha = Math.max(0, Math.min(ai.alpha, ai.maxAlpha));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // Body + head silhouette (no eyes — pure psychological uncertainty)
+    ctx.fillStyle = 'rgba(145,18,18,1)';
+    ctx.fillRect(asprX + asw * 0.23, asprY + aph * 0.2, asw * 0.54, aph * 0.76);
+    ctx.beginPath(); ctx.ellipse(asx, asprY + aph * 0.13, asw * 0.26, aph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    // Deterministic grain — seed updates ~12×/s, unique per afterimage position
+    ctx.globalAlpha = alpha * 0.55;
+    const grainT = (Math.floor(Date.now() / 82) + (ai.wx * 73 | 0)) & 0xFFFF;
+    for (let g = 0; g < 9; g++) {
+      const h = (grainT * 1337 + g * 53) & 0xFFFF;
+      const gx = asprX + (h % 997) / 997 * asw;
+      const gy = asprY + ((h * 31 + 7) % 997) / 997 * aph;
+      ctx.fillStyle = h & 1 ? '#fff' : '#000';
+      ctx.fillRect(gx, gy, 1, 1);
     }
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   // Mimic — pale ghostly silhouette, white eyes, level 3+
@@ -684,6 +689,7 @@ export function draw(lit, bob, outline) {
 
   // Mimic full ghostly sprite when lit (semi-transparent, no arms)
   if (ms && lit > 0) {
+    state.lastKnownM = { wx: state.M.x, wy: state.M.y };
     const { sx: msx, dist: md, ph: mph } = ms;
     const msw = mph * 0.58, msprX = msx - msw / 2, msprY = H / 2 - mph * 0.5 + hs;
     const msc0 = Math.max(0, (msprX / W * NR) | 0), msc1 = Math.min(NR - 1, ((msprX + msw) / W * NR) | 0);
@@ -712,6 +718,7 @@ export function draw(lit, bob, outline) {
   // Blind One — no eyes, slightly shorter, only visible when lit (no dark tell)
   const bs = state.level >= 5 ? blindScreen() : null;
   if (bs && lit > 0) {
+    state.lastKnownB = { wx: state.B.x, wy: state.B.y };
     const { sx: bsx2, dist: bd, ph: bph2 } = bs;
     const bsw = bph2 * 0.50, bsprX = bsx2 - bsw / 2;
     const bph2r = bph2 * 0.78, bsprY = H / 2 - bph2r * 0.5 + hs;
