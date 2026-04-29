@@ -781,7 +781,18 @@ state.ctx.fillRect(0, 0, state.W, state.H);
 applyControlScheme();
 
 // Attempt to load PNG sprites; falls back to procedural shapes if missing
-loadSprites({ battery: 'sprites/battery.png' }).catch(() => {});
+loadSprites({
+  battery:       'sprites/battery.png',
+  note:          'sprites/note.png',
+  rat:           'sprites/rat.png',
+  door:          'sprites/door.png',
+  web:           'sprites/web.png',
+  bat:           'sprites/bat.png',
+  jumpscareface: 'sprites/jumpscareface.png',
+  stalker:       'sprites/stalker.png',
+  mimic:         'sprites/mimic.png',
+  blind:         'sprites/blind.png',
+}).catch(() => {});
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 

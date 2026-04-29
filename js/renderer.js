@@ -197,7 +197,10 @@ export function draw(lit, bob, outline) {
     }
     // Exit door frame + floating particles
     if (goalL <= goalR) {
-      const doorW = (goalR - goalL + 1) * cw;
+      const doorW  = (goalR - goalL + 1) * cw;
+      // Door sprite rendered as base layer; green frame + particles go on top
+      const doorSpr = getSprite('door');
+      if (doorSpr) ctx.drawImage(doorSpr, goalL * cw, goalTopY, doorW, goalWH);
       const fw    = Math.max(2, doorW * 0.055);
       ctx.fillStyle = `rgba(50,255,80,${lit * 0.88})`;
       ctx.fillRect(goalL * cw, goalTopY, fw, goalWH);              // left post
@@ -240,18 +243,26 @@ export function draw(lit, bob, outline) {
       const wsx = W / 2 + (wa / HFOV) * (W / 2);
       const col = Math.max(0, Math.min(NR - 1, (wsx / W * NR) | 0));
       if (zb[col] > wdist * 0.92) {
-        const wrad = Math.min(H * 1.65 / wdist * 0.45, W * 0.10);
-        const wcy  = H / 2 + hs;
+        const wrad  = Math.min(H * 1.65 / wdist * 0.45, W * 0.10);
+        const wcy   = H / 2 + hs;
+        const webSpr = getSprite('web');
         ctx.save();
-        ctx.globalAlpha = Math.max(0, (1 - wdist / 5) * lit * 0.22);
-        ctx.strokeStyle = '#e8e0c8'; ctx.lineWidth = 0.6;
-        for (let k = 0; k < 8; k++) {
-          const ang = k * Math.PI / 4;
-          ctx.beginPath(); ctx.moveTo(wsx, wcy);
-          ctx.lineTo(wsx + Math.cos(ang) * wrad, wcy + Math.sin(ang) * wrad); ctx.stroke();
-        }
-        for (let ring = 1; ring <= 3; ring++) {
-          ctx.beginPath(); ctx.arc(wsx, wcy, wrad * ring / 3, 0, Math.PI * 2); ctx.stroke();
+        if (webSpr) {
+          ctx.globalCompositeOperation = 'screen'; // black bg → transparent
+          ctx.globalAlpha = Math.max(0, (1 - wdist / 5) * lit * 0.32);
+          ctx.drawImage(webSpr, wsx - wrad, wcy - wrad, wrad * 2, wrad * 2);
+          ctx.globalCompositeOperation = 'source-over';
+        } else {
+          ctx.globalAlpha = Math.max(0, (1 - wdist / 5) * lit * 0.22);
+          ctx.strokeStyle = '#e8e0c8'; ctx.lineWidth = 0.6;
+          for (let k = 0; k < 8; k++) {
+            const ang = k * Math.PI / 4;
+            ctx.beginPath(); ctx.moveTo(wsx, wcy);
+            ctx.lineTo(wsx + Math.cos(ang) * wrad, wcy + Math.sin(ang) * wrad); ctx.stroke();
+          }
+          for (let ring = 1; ring <= 3; ring++) {
+            ctx.beginPath(); ctx.arc(wsx, wcy, wrad * ring / 3, 0, Math.PI * 2); ctx.stroke();
+          }
         }
         ctx.globalAlpha = 1; ctx.restore();
       }
@@ -485,12 +496,19 @@ export function draw(lit, bob, outline) {
           ctx.save(); ctx.beginPath();
           for (let sc = nc0; sc <= nc1; sc++) if (zb[sc] > ndist) ctx.rect(sc * cw, 0, cw + 1, H);
           ctx.clip();
-          const nLitA = Math.min(1, lit * 1.3) * Math.min(1, 4 / ndist) * npulse;
-          const ng2 = ctx.createRadialGradient(nsx, nCy, 0, nsx, nCy, nh * 2.8);
-          ng2.addColorStop(0, `rgba(245,232,195,${nLitA})`); ng2.addColorStop(1, 'transparent');
-          ctx.fillStyle = ng2; ctx.fillRect(nsx - nh * 3, nCy - nh * 3, nh * 6, nh * 6);
-          ctx.fillStyle = `rgba(240,228,192,${nLitA})`;
-          ctx.fillRect(nsx - nw * 0.5, nCy - nh * 0.5, nw, nh);
+          const nLitA  = Math.min(1, lit * 1.3) * Math.min(1, 4 / ndist) * npulse;
+          const noteSpr = getSprite('note');
+          if (noteSpr) {
+            ctx.globalAlpha = nLitA;
+            ctx.drawImage(noteSpr, nsx - nw, nCy - nh, nw * 2, nh * 1.5);
+            ctx.globalAlpha = 1;
+          } else {
+            const ng2 = ctx.createRadialGradient(nsx, nCy, 0, nsx, nCy, nh * 2.8);
+            ng2.addColorStop(0, `rgba(245,232,195,${nLitA})`); ng2.addColorStop(1, 'transparent');
+            ctx.fillStyle = ng2; ctx.fillRect(nsx - nh * 3, nCy - nh * 3, nh * 6, nh * 6);
+            ctx.fillStyle = `rgba(240,228,192,${nLitA})`;
+            ctx.fillRect(nsx - nw * 0.5, nCy - nh * 0.5, nw, nh);
+          }
           ctx.restore();
         }
       }
@@ -512,10 +530,17 @@ export function draw(lit, bob, outline) {
           const rph = H * 1.65 / rdist;
           const rcy = H / 2 + rph * 0.30 + hs;
           if (rcy < H) {
-            ctx.save(); ctx.globalAlpha = state.rat.life * 0.88;
-            ctx.fillStyle = '#181010';
-            const rr = Math.max(2, H * 0.005 / rdist);
-            ctx.beginPath(); ctx.ellipse(rsx, rcy, rr * 2.2, rr, 0.3, 0, Math.PI * 2); ctx.fill();
+            const rr    = Math.max(2, H * 0.005 / rdist);
+            const ratSpr = getSprite('rat');
+            ctx.save(); ctx.globalAlpha = state.rat.life * 0.90;
+            if (ratSpr) {
+              ctx.translate(rsx, rcy);
+              if ((state.rat.vx || 0) < 0) ctx.scale(-1, 1);
+              ctx.drawImage(ratSpr, -rr * 2.5, -rr * 1.2, rr * 5, rr * 2.4);
+            } else {
+              ctx.fillStyle = '#181010';
+              ctx.beginPath(); ctx.ellipse(rsx, rcy, rr * 2.2, rr, 0.3, 0, Math.PI * 2); ctx.fill();
+            }
             ctx.globalAlpha = 1; ctx.restore();
           }
         }
@@ -605,11 +630,20 @@ export function draw(lit, bob, outline) {
     }
 
     const ba = Math.min(1, lit * 1.1) * Math.min(1, 5 / d);
-    ctx.fillStyle = `rgba(5,1,1,${ba})`;
-    ctx.fillRect(sprX + sw * 0.23, sprY + ph * 0.2, sw * 0.54, ph * 0.76);
-    ctx.fillStyle = `rgba(8,2,2,${ba})`;
-    ctx.beginPath(); ctx.ellipse(sx, sprY + ph * 0.13, sw * 0.26, ph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    const stalkerSpr = getSprite('stalker');
+    if (stalkerSpr) {
+      // Sprite: distance-based brightness falloff, eyes rendered on top
+      ctx.globalAlpha = Math.min(1, lit * 1.1) * Math.min(1, 6 / d);
+      ctx.drawImage(stalkerSpr, sprX, sprY, sw, ph);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = `rgba(5,1,1,${ba})`;
+      ctx.fillRect(sprX + sw * 0.23, sprY + ph * 0.2, sw * 0.54, ph * 0.76);
+      ctx.fillStyle = `rgba(8,2,2,${ba})`;
+      ctx.beginPath(); ctx.ellipse(sx, sprY + ph * 0.13, sw * 0.26, ph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    }
 
+    // Red eye glow always on top (sprite or procedural)
     const ela  = Math.min(1, lit * 1.3) * eyePulse;
     const esz2 = Math.max(1.5, ph * 0.036), eo2 = Math.max(2, ph * 0.088), ey2 = sprY + ph * 0.1;
     [sx - eo2, sx + eo2].forEach(ex => {
@@ -621,7 +655,7 @@ export function draw(lit, bob, outline) {
       ctx.beginPath(); ctx.arc(ex, ey2, esz2, 0, Math.PI * 2); ctx.fill();
     });
 
-    if (ph > 45) {
+    if (!stalkerSpr && ph > 45) {
       ctx.strokeStyle = `rgba(4,1,1,${ba * 0.8})`; ctx.lineWidth = Math.max(1, sw * 0.06);
       ctx.beginPath(); ctx.moveTo(sx - sw * 0.17, sprY + ph * 0.44); ctx.lineTo(sx - sw * 0.6, sprY + ph * 0.7); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(sx + sw * 0.17, sprY + ph * 0.44); ctx.lineTo(sx + sw * 0.6, sprY + ph * 0.7); ctx.stroke();
@@ -697,11 +731,19 @@ export function draw(lit, bob, outline) {
     ctx.beginPath();
     for (let sc = msc0; sc <= msc1; sc++) if (zb[sc] > md) ctx.rect(sc * cw, 0, cw + 1, H);
     ctx.clip();
-    const mba = Math.min(1, lit * 0.65) * Math.min(1, 5 / md) * 0.50; // more transparent than real enemy
-    ctx.fillStyle = `rgba(8,6,12,${mba})`;
-    ctx.fillRect(msprX + msw * 0.23, msprY + mph * 0.2, msw * 0.54, mph * 0.76);
-    ctx.fillStyle = `rgba(10,8,16,${mba})`;
-    ctx.beginPath(); ctx.ellipse(msx, msprY + mph * 0.13, msw * 0.26, mph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    const mba = Math.min(1, lit * 0.65) * Math.min(1, 5 / md) * 0.50;
+    const mimicSpr = getSprite('mimic');
+    if (mimicSpr) {
+      ctx.globalCompositeOperation = 'screen'; // black bg → transparent
+      ctx.globalAlpha = mba;
+      ctx.drawImage(mimicSpr, msprX, msprY, msw, mph);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    } else {
+      ctx.fillStyle = `rgba(8,6,12,${mba})`;
+      ctx.fillRect(msprX + msw * 0.23, msprY + mph * 0.2, msw * 0.54, mph * 0.76);
+      ctx.fillStyle = `rgba(10,8,16,${mba})`;
+      ctx.beginPath(); ctx.ellipse(msx, msprY + mph * 0.13, msw * 0.26, mph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    }
     const mela = Math.min(1, lit * 1.0) * mimicPulse * 0.85;
     const mesz2 = Math.max(1.5, mph * 0.036), meo2 = Math.max(2, mph * 0.088), mey2 = msprY + mph * 0.1;
     [msx - meo2, msx + meo2].forEach(ex => {
@@ -726,17 +768,25 @@ export function draw(lit, bob, outline) {
     ctx.save(); ctx.beginPath();
     for (let sc = bsc0; sc <= bsc1; sc++) if (zb[sc] > bd) ctx.rect(sc * cw, 0, cw + 1, H);
     ctx.clip();
-    const bba = Math.min(1, lit * 1.0) * Math.min(1, 5 / bd);
-    ctx.fillStyle = `rgba(2,1,1,${bba})`;
-    ctx.fillRect(bsprX + bsw * 0.23, bsprY + bph2r * 0.2, bsw * 0.54, bph2r * 0.76);
-    ctx.fillStyle = `rgba(3,1,1,${bba})`;
-    ctx.beginPath(); ctx.ellipse(bsx2, bsprY + bph2r * 0.13, bsw * 0.26, bph2r * 0.16, 0, 0, Math.PI * 2); ctx.fill();
-    // Void eye sockets — solid black, no glow
-    const besz = Math.max(1.5, bph2r * 0.030), beo = Math.max(2, bph2r * 0.078);
-    ctx.fillStyle = `rgba(0,0,0,${bba})`;
-    [bsx2 - beo, bsx2 + beo].forEach(ex => {
-      ctx.beginPath(); ctx.arc(ex, bsprY + bph2r * 0.1, besz * 1.3, 0, Math.PI * 2); ctx.fill();
-    });
+    const bba     = Math.min(1, lit * 1.0) * Math.min(1, 5 / bd);
+    const blindSpr = getSprite('blind');
+    if (blindSpr) {
+      ctx.globalAlpha = bba;
+      ctx.drawImage(blindSpr, bsprX, bsprY, bsw, bph2r);
+      ctx.globalAlpha = 1;
+      // No eye rendering — blind one has no eyes
+    } else {
+      ctx.fillStyle = `rgba(2,1,1,${bba})`;
+      ctx.fillRect(bsprX + bsw * 0.23, bsprY + bph2r * 0.2, bsw * 0.54, bph2r * 0.76);
+      ctx.fillStyle = `rgba(3,1,1,${bba})`;
+      ctx.beginPath(); ctx.ellipse(bsx2, bsprY + bph2r * 0.13, bsw * 0.26, bph2r * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      // Void eye sockets — solid black, no glow
+      const besz = Math.max(1.5, bph2r * 0.030), beo = Math.max(2, bph2r * 0.078);
+      ctx.fillStyle = `rgba(0,0,0,${bba})`;
+      [bsx2 - beo, bsx2 + beo].forEach(ex => {
+        ctx.beginPath(); ctx.arc(ex, bsprY + bph2r * 0.1, besz * 1.3, 0, Math.PI * 2); ctx.fill();
+      });
+    }
     ctx.restore();
   }
 
@@ -912,16 +962,31 @@ export function draw(lit, bob, outline) {
     const { t, dir } = state.bat;
     const bx = dir > 0 ? t * (W + 80) - 40 : W + 40 - t * (W + 80);
     const by = H * 0.14 + Math.sin(t * Math.PI * 5) * H * 0.04;
-    const flap = Math.sin(t * Math.PI * 14);
-    ctx.save(); ctx.fillStyle = 'rgba(3,2,2,0.96)';
-    ctx.beginPath(); ctx.ellipse(bx, by, 7, 5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(bx - 5, by);
-    ctx.bezierCurveTo(bx-24, by-15*(1+flap), bx-36, by+6, bx-22, by+4);
-    ctx.bezierCurveTo(bx-12, by+7, bx-5, by+2, bx-5, by); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(bx + 5, by);
-    ctx.bezierCurveTo(bx+24, by-15*(1+flap), bx+36, by+6, bx+22, by+4);
-    ctx.bezierCurveTo(bx+12, by+7, bx+5, by+2, bx+5, by); ctx.fill();
-    ctx.restore();
+    const batSpr = getSprite('bat');
+    if (batSpr) {
+      const frame = Math.floor(Date.now() / 100) % 3;
+      const fw    = batSpr.width / 3;
+      const bw    = Math.max(55, H * 0.09);
+      const bh    = bw * batSpr.height / fw;
+      ctx.save();
+      ctx.translate(bx, by);
+      if (dir < 0) ctx.scale(-1, 1);   // flip to match travel direction
+      ctx.globalCompositeOperation = 'screen'; // black bg → transparent
+      ctx.drawImage(batSpr, frame * fw, 0, fw, batSpr.height, -bw / 2, -bh / 2, bw, bh);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    } else {
+      const flap = Math.sin(t * Math.PI * 14);
+      ctx.save(); ctx.fillStyle = 'rgba(3,2,2,0.96)';
+      ctx.beginPath(); ctx.ellipse(bx, by, 7, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(bx - 5, by);
+      ctx.bezierCurveTo(bx-24, by-15*(1+flap), bx-36, by+6, bx-22, by+4);
+      ctx.bezierCurveTo(bx-12, by+7, bx-5, by+2, bx-5, by); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(bx + 5, by);
+      ctx.bezierCurveTo(bx+24, by-15*(1+flap), bx+36, by+6, bx+22, by+4);
+      ctx.bezierCurveTo(bx+12, by+7, bx+5, by+2, bx+5, by); ctx.fill();
+      ctx.restore();
+    }
   }
 
   // Jump scare overlay — drawn outside the shake transform
@@ -1017,6 +1082,16 @@ function drawJumpScare(ctx, W, H, t) {
     ctx.lineTo(cx + Math.cos(ang - bend) * r2,  cy + Math.sin(ang - bend) * r2);
     ctx.lineTo(cx + Math.cos(ang) * endR,        cy + Math.sin(ang) * endR);
     ctx.stroke();
+  }
+
+  // Jumpscare face sprite — layered on top via screen blend (black bg → transparent)
+  const jsSpr = getSprite('jumpscareface');
+  if (jsSpr) {
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(jsSpr, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   ctx.restore();
