@@ -577,6 +577,7 @@ function loop(ts) {
   if (result) {
     state.gameState = result; state.flashHeld = false;
     if (result === 'dead' && state.cursedFlash) state.killedBy = 'cursed';
+    if (isMouseMode() && document.pointerLockElement) document.exitPointerLock();
     stopAmbient(); stopExitHum(); resetPanicAudio();
     if (result === 'dead') {
       state.jumpScareTimer = 1.0;
@@ -682,6 +683,7 @@ function updateUI() {
 }
 
 function showMsg(type) {
+  if (isMouseMode() && document.pointerLockElement) document.exitPointerLock();
   const el = document.getElementById('msgscreen');
   el.className = type;
   const dm = type === 'dead'
