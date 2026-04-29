@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
 import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
-import { draw } from './renderer.js';
+import { draw, loadSprites } from './renderer.js';
 import { stepEnemy, stepMimic, stepBlindOne, stepEntity, checkEnd, isWall } from './enemy.js';
 
 const NOTE_TEXTS = [
@@ -737,6 +737,9 @@ resize();
 state.ctx.fillStyle = '#000';
 state.ctx.fillRect(0, 0, state.W, state.H);
 applyControlScheme();
+
+// Attempt to load PNG sprites; falls back to procedural shapes if missing
+loadSprites({ battery: 'sprites/battery.png' }).catch(() => {});
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 
