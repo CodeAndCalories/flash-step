@@ -95,4 +95,13 @@ export const state = {
   winLevel:             0,
   winType:              '',
   winFlashes:           0,
+  flashBrightness:      0.35, // 0.35–1.0; grows with batteries; controls visual range + enemy speed
+  hintText:             '',
+  hintTimer:            0,
+  levelTimer:           0,   // ms since level started, used to gate hallucinations
+  hallucinVignette:     0,   // 0-1, decays over 200ms when an audio hallucination fires
+  // Death replay
+  replayBuffer:         [],
+  replayRecordTimer:    0,
+  deathReplay:          null,
 };

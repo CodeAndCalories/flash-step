@@ -5,16 +5,19 @@ body { background: #000; overflow: hidden; touch-action: none; font-family: 'Sha
 canvas { display: block; position: fixed; top: 0; left: 0; }
 
 #ui { position: fixed; top: 0; left: 0; right: 0; padding: 12px 18px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
-.stat { color: #991111; font-size: 11px; letter-spacing: 2px; text-shadow: 0 0 8px #ff000066; line-height: 1.9; }
+.stat {
+  color: #991111; font-size: 15px; letter-spacing: 2px; text-shadow: 0 0 8px #ff000066; line-height: 1.8;
+  background: rgba(0,0,0,0.48); padding: 5px 11px; border-radius: 2px;
+}
 
 body.mouse-mode #ui { padding: 16px 22px; align-items: center; }
 body.mouse-mode .stat {
-  font-size: 15px; letter-spacing: 2.5px; line-height: 1.4;
-  background: rgba(0,0,0,0.60); padding: 8px 16px;
+  font-size: 18px; letter-spacing: 2.5px; line-height: 1.4;
+  background: rgba(0,0,0,0.62); padding: 9px 18px;
   border: 1px solid rgba(110,0,0,0.28);
   color: #aa2222; text-shadow: 0 0 10px #ff000055;
 }
-body.mouse-mode #s-dist { font-size: 13px; }
+body.mouse-mode #s-dist { font-size: 16px; }
 
 /* #overlay removed — replaced by #menu */
 .title { font-family: 'Creepster', cursive; font-size: clamp(50px, 12vw, 88px); color: #fff; letter-spacing: 6px; text-shadow: 0 0 40px #fff5, 0 0 100px #fff2; margin-bottom: 4px; text-align: center; }
@@ -52,6 +55,42 @@ body.mouse-mode #s-dist { font-size: 13px; }
 
 .low-battery   { animation: low-batt 0.9s ease-in-out infinite; color: #ff3300 !important; text-shadow: 0 0 12px #ff220088 !important; }
 .flash-draining { animation: drain-pulse 0.42s ease-in-out infinite !important; color: #ff8800 !important; text-shadow: 0 0 10px #ff770066 !important; }
+
+/* ── Photosensitivity warning ─────────────────────────────────────────────────── */
+
+#photo-warning {
+  position: fixed; inset: 0;
+  background: #000;
+  color: #fff;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Share Tech Mono', monospace;
+  cursor: pointer;
+  transition: opacity 0.6s ease;
+}
+#photo-warning.fade-out { opacity: 0; pointer-events: none; }
+
+#photo-warning-inner {
+  max-width: 560px;
+  padding: 48px 36px;
+  text-align: center;
+}
+.pw-icon   { font-size: 44px; margin-bottom: 20px; line-height: 1; }
+.pw-title  { font-size: 18px; letter-spacing: 3px; margin-bottom: 30px; }
+.pw-body   { font-size: 14px; line-height: 2.1; letter-spacing: 1px; color: #ccc; margin-bottom: 26px; }
+.pw-advice { font-size: 13px; letter-spacing: 2px; color: #999; margin-bottom: 44px; }
+.pw-cta    { font-size: 11px; letter-spacing: 3px; color: #555; animation: pw-blink 1.8s ease-in-out infinite; }
+
+@keyframes pw-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+@media (max-width: 600px), (pointer: coarse) {
+  .pw-title  { font-size: 22px; }
+  .pw-body   { font-size: 17px; }
+  .pw-advice { font-size: 16px; }
+  .pw-cta    { font-size: 15px; }
+}
 
 /* ── Main menu ────────────────────────────────────────────────────────────────── */
 
@@ -259,6 +298,11 @@ input[type="range"]::-moz-range-thumb {
 .li-cycle {
   font-size: 9px; letter-spacing: 3px; color: #442222; margin-top: 6px;
 }
+.li-new-enemy {
+  font-size: 11px; letter-spacing: 3px; color: #cc2222;
+  margin-top: 14px; text-shadow: 0 0 10px #ff000077;
+  opacity: 0; transition: none;
+}
 
 /* SILENCE HUD label and spawn type flash */
 #s-silence    { color: #445544; font-size: 9px; letter-spacing: 3px; margin-top: 2px; }
@@ -345,3 +389,148 @@ body.mouse-mode #turn-btns { display: none; }
 .prompt-sub { color: #331111; font-size: 8px; letter-spacing: 2px; }
 
 @keyframes prompt-in { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }
+
+/* ── Level 10 ending sequence ─────────────────────────────────────────────── */
+
+#ending-seq {
+  position: fixed; inset: 0;
+  background: #000;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 35;
+}
+
+#ending-card {
+  text-align: center;
+  padding: 32px 48px;
+  max-width: 680px;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+}
+
+.ending-main {
+  font-family: 'Creepster', cursive;
+  font-size: clamp(26px, 6vw, 48px);
+  color: #fff;
+  letter-spacing: 3px;
+  text-shadow: 0 0 40px rgba(255,255,255,0.25);
+  display: block;
+}
+
+.ending-title {
+  font-family: 'Creepster', cursive;
+  font-size: clamp(48px, 11vw, 88px);
+  color: #fff;
+  letter-spacing: 6px;
+  text-shadow: 0 0 60px rgba(255,255,255,0.3), 0 0 120px rgba(255,255,255,0.1);
+  display: block;
+  line-height: 1.1;
+}
+
+.ending-sub {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: clamp(10px, 2.2vw, 13px);
+  color: #555;
+  letter-spacing: 5px;
+  display: block;
+  margin-top: 8px;
+}
+
+/* HUD endless mode indicator */
+#s-level.endless { color: #6688aa; text-shadow: 0 0 8px #4466aa44; letter-spacing: 3px; }
+
+/* ── How to Play overlay ──────────────────────────────────────────────────── */
+
+#howto-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.97);
+  z-index: 38;
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#howto-content {
+  max-width: 620px; width: 100%;
+  padding: 52px 32px 48px;
+}
+
+.howto-game-title {
+  font-family: 'Creepster', cursive;
+  font-size: clamp(30px, 6.5vw, 50px);
+  color: #fff;
+  letter-spacing: 6px;
+  text-align: center;
+  margin-bottom: 44px;
+  text-shadow: 0 0 40px rgba(255,255,255,0.15), 0 0 80px rgba(255,255,255,0.06);
+}
+
+.howto-section { margin-bottom: 30px; }
+
+.howto-header {
+  font-family: 'Creepster', cursive;
+  font-size: clamp(15px, 3.2vw, 21px);
+  color: #cc2222;
+  letter-spacing: 4px;
+  margin-bottom: 10px;
+  text-shadow: 0 0 16px rgba(200,0,0,0.35);
+}
+
+.howto-body {
+  color: rgba(195,185,185,0.72);
+  font-size: clamp(10px, 2.1vw, 13px);
+  letter-spacing: 1.5px;
+  line-height: 2.1;
+  border-left: 2px solid rgba(100,0,0,0.38);
+  padding-left: 14px;
+  margin: 0;
+}
+
+#howto-content .menu-btn--back { margin-top: 44px; }
+
+/* ── Pause ? button ───────────────────────────────────────────────────────── */
+
+#howto-btn {
+  position: fixed; top: 14px; right: 14px;
+  width: 32px; height: 32px;
+  background: rgba(0,0,0,0.52);
+  border: 1px solid rgba(100,0,0,0.32);
+  color: #551111;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 15px; font-weight: bold;
+  cursor: pointer;
+  z-index: 22;
+  display: none;
+  align-items: center; justify-content: center;
+  border-radius: 2px;
+  pointer-events: all;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+#howto-btn:hover, #howto-btn:active { color: #cc2222; border-color: rgba(160,0,0,0.55); }
+
+/* ── Brightness bar ───────────────────────────────────────────────────────── */
+
+.brt-row { display: flex; align-items: center; gap: 5px; }
+.brt-outer {
+  display: inline-block; width: 56px; height: 6px;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10);
+  vertical-align: middle;
+}
+.brt-fill {
+  display: block; height: 100%; width: 35%;
+  background: linear-gradient(to right, rgba(255,150,10,0.65), rgba(255,235,60,0.95));
+  transition: width 0.35s ease;
+}
+.brt-warn {
+  font-size: 10px; letter-spacing: 2px; color: #ff8800; margin-top: 1px;
+  animation: warn-pulse 0.4s ease-in-out infinite;
+}
+
+/* ── Level 1 hint overlay ──────────────────────────────────────────────────── */
+
+#hint-display {
+  position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
+  color: #4a6644; font-size: 13px; letter-spacing: 3px; text-align: center;
+  pointer-events: none; z-index: 9; white-space: nowrap;
+  background: rgba(0,0,0,0.55); padding: 7px 18px;
+  text-shadow: 0 0 10px #00440022; border: 1px solid rgba(255,255,255,0.05);
+}

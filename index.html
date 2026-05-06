@@ -9,7 +9,10 @@
 <canvas id="c"></canvas>
 
 <div id="ui">
-  <div class="stat" id="s-flash">FLASHES<br>0</div>
+  <div class="stat" id="s-brightness">
+    <div class="brt-row">💡<span class="brt-outer"><span id="brightness-bar-fill" class="brt-fill"></span></span></div>
+    <div id="s-visible" class="brt-warn" style="display:none">⚠ VISIBLE</div>
+  </div>
   <div style="text-align:center;pointer-events:none">
     <div class="stat" id="s-level">LEVEL 1</div>
     <div id="s-moving">● MOVING</div>
@@ -17,12 +20,28 @@
     <div id="s-type"  class="stat-type"></div>
     <div id="s-lights-on" class="stat-warn"  style="display:none">💡 LIGHTS ON</div>
     <div id="s-silence"   class="stat-small" style="display:none">🔇 SILENCE</div>
-    <div id="s-limited"   class="stat-warn"  style="display:none">BATTERIES NOW LIMITED</div>
+    <div id="s-limited"   class="stat-warn"  style="display:none">BRIGHTER = MORE DANGEROUS</div>
     <div id="s-cursed"    class="stat-warn"  style="display:none">⚡ CURSED ⚡</div>
     <div id="s-spawned"   class="stat-warn"  style="display:none">ANOTHER ONE</div>
     <div id="s-type-spawn" class="stat-spawn-type" style="display:none"></div>
   </div>
   <div class="stat" style="text-align:right" id="s-dist">DIST<br>—</div>
+</div>
+
+<!-- ── Photosensitivity warning ──────────────────────────────────────────── -->
+<div id="photo-warning">
+  <div id="photo-warning-inner">
+    <div class="pw-icon">⚠</div>
+    <div class="pw-title">PHOTOSENSITIVITY WARNING</div>
+    <div class="pw-body">
+      This game contains bright flashing lights,<br>
+      sudden flashes, and rapid light changes<br>
+      that may affect players with photosensitive<br>
+      epilepsy or similar conditions.
+    </div>
+    <div class="pw-advice">Player discretion is advised.</div>
+    <div class="pw-cta">[CLICK OR TAP TO CONTINUE]</div>
+  </div>
 </div>
 
 <!-- ── Main menu ─────────────────────────────────────────────── -->
@@ -40,6 +59,7 @@
     <div class="menu-sep"></div>
     <nav class="menu-nav">
       <button class="menu-btn menu-btn--sm" id="btn-options">OPTIONS</button>
+      <button class="menu-btn menu-btn--sm" id="btn-howto">HOW TO PLAY</button>
       <button class="menu-btn menu-btn--sm" id="btn-exit">EXIT</button>
     </nav>
     <div class="hint">
@@ -73,6 +93,14 @@
       <label class="opt-label">SCREEN SHAKE</label>
       <div class="opt-row opt-row--toggle">
         <button class="toggle-btn" id="opt-shake" aria-pressed="true">ON</button>
+      </div>
+    </div>
+    <div class="opt-group">
+      <label class="opt-label" for="opt-sens">MOUSE SENSITIVITY</label>
+      <div class="opt-row">
+        <span class="opt-dim">SLOW</span>
+        <input type="range" id="opt-sens" min="0.0005" max="0.004" step="0.0001">
+        <span class="opt-dim">FAST</span>
       </div>
     </div>
     <button class="menu-btn menu-btn--back" id="btn-opts-back">← BACK</button>
@@ -123,6 +151,14 @@
         <button class="toggle-btn" id="p-opt-shake" aria-pressed="true">ON</button>
       </div>
     </div>
+    <div class="opt-group">
+      <label class="opt-label" for="p-opt-sens">MOUSE SENSITIVITY</label>
+      <div class="opt-row">
+        <span class="opt-dim">SLOW</span>
+        <input type="range" id="p-opt-sens" min="0.0005" max="0.004" step="0.0001">
+        <span class="opt-dim">FAST</span>
+      </div>
+    </div>
     <button class="menu-btn menu-btn--back" id="pause-opts-back">← BACK</button>
   </div>
 
@@ -141,6 +177,7 @@
   <div class="li-flavor"></div>
   <div class="li-sub"></div>
   <div class="li-cycle"></div>
+  <div class="li-new-enemy" style="display:none"></div>
 </div>
 
 <!-- ── Death / win screen ───────────────────────────────────── -->
@@ -177,11 +214,70 @@
   </div>
 </div>
 
+<div id="hint-display" style="display:none"></div>
+
+<!-- ── ? shortcut button (pause only) ───────────────────────────────────── -->
+<button id="howto-btn" aria-label="How to play">?</button>
+
 <div id="flash-tooltip" style="display:none">HOLD to illuminate · Release to hide</div>
 
 <div id="mouse-prompt">
   <span>CLICK TO CAPTURE MOUSE</span>
   <span class="prompt-sub">ESC TO PAUSE · RELEASE</span>
+</div>
+
+<!-- ── Level 10 ending sequence ────────────────────────────────────────── -->
+<div id="ending-seq" style="display:none">
+  <div id="ending-card"></div>
+</div>
+
+<!-- ── How to Play overlay (shared: main menu + pause) ─────────────────── -->
+<div id="howto-overlay" style="display:none">
+  <div id="howto-content">
+
+    <div class="howto-game-title">THE FLASH-STEP</div>
+
+    <div class="howto-section">
+      <div class="howto-header">[ THE DARKNESS ]</div>
+      <p class="howto-body">You are trapped in a maze.<br>
+      You cannot see without your camera flash.<br>
+      Find the glowing green door to escape.</p>
+    </div>
+
+    <div class="howto-section">
+      <div class="howto-header">[ THE FLASH ]</div>
+      <p class="howto-body">Press and hold FLASH to illuminate.<br>
+      The longer you hold — the more it sees you.<br>
+      Brighter flash = faster enemies.<br>
+      Collect batteries to increase brightness.</p>
+    </div>
+
+    <div class="howto-section">
+      <div class="howto-header">[ THE THINGS IN THE DARK ]</div>
+      <p class="howto-body">THE STALKER follows your light.<br>
+      THE MIMIC follows your footsteps.<br>
+      THE BLIND ONE follows your sound.<br>
+      They move when you illuminate. Don't look too long.</p>
+    </div>
+
+    <div class="howto-section">
+      <div class="howto-header">[ CONTROLS ]</div>
+      <p class="howto-body">PC: WASD / Arrows to move · Mouse to look<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;SPACE to flash · ESC to pause<br>
+      Mobile: D-pad to move · Turn buttons to look<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;FLASH button to illuminate</p>
+    </div>
+
+    <div class="howto-section">
+      <div class="howto-header">[ TIPS ]</div>
+      <p class="howto-body">· Listen for the heartbeat — it means something is close<br>
+      · Your first flash reveals a map. Use it wisely.<br>
+      · Standing still in darkness makes you harder to find<br>
+      · Short flashes are safer than long ones</p>
+    </div>
+
+    <button class="menu-btn menu-btn--back" id="howto-back">← BACK</button>
+  </div>
 </div>
 
 <script type="module" src="js/menu.js"></script>

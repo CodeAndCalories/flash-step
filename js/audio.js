@@ -67,14 +67,14 @@ export function playHeartbeat(intensity) {
     const thump = (when, vol) => {
       const o = a.createOscillator(), g = a.createGain();
       o.connect(g); g.connect(getMasterGain());
-      o.type = 'sine'; o.frequency.setValueAtTime(58, when);
-      o.frequency.exponentialRampToValueAtTime(28, when + 0.12);
-      g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(vol, when + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, when + 0.2);
-      o.start(when); o.stop(when + 0.22);
+      o.type = 'sine'; o.frequency.setValueAtTime(46, when);   // deeper (was 58)
+      o.frequency.exponentialRampToValueAtTime(20, when + 0.15); // lower thud (was 28/0.12)
+      g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(vol, when + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, when + 0.26);
+      o.start(when); o.stop(when + 0.28);
     };
-    thump(t, 0.28 * intensity);
-    thump(t + 0.14, 0.14 * intensity);
+    thump(t, 0.224 * intensity);       // -20% (was 0.28)
+    thump(t + 0.15, 0.112 * intensity); // -20% (was 0.14)
   } catch(e) {}
 }
 
@@ -462,14 +462,59 @@ export function playWebStick() {
 export function playBlindClick(pan, intensity) {
   try {
     const a = getAudio(), t = a.currentTime;
-    const o = a.createOscillator(), g = a.createGain(), p = a.createStereoPanner();
-    o.type = 'square'; o.frequency.value = 1900;
-    p.pan.value = Math.max(-1, Math.min(1, pan));
+    const p = a.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan));
+    // Sharp sonar ping — sine sweep from high to mid, distinct from heartbeat
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(2800, t);
+    o.frequency.exponentialRampToValueAtTime(1300, t + 0.030);
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.022 * intensity, t + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.052);
+    g.gain.linearRampToValueAtTime(0.028 * intensity, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.042);
     o.connect(g); g.connect(p); p.connect(getMasterGain());
-    o.start(t); o.stop(t + 0.06);
+    o.start(t); o.stop(t + 0.048);
+    // Faint reverb tail
+    const o2 = a.createOscillator(), g2 = a.createGain();
+    o2.type = 'sine'; o2.frequency.value = 2000;
+    g2.gain.setValueAtTime(0.010 * intensity, t + 0.014);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
+    o2.connect(g2); g2.connect(p);
+    o2.start(t + 0.014); o2.stop(t + 0.09);
+  } catch(e) {}
+}
+
+// Wet dragging sound — plays each time the Stalker takes a BFS step (very quiet)
+export function playStalkerDrag() {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.12);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len) * 0.42;
+    const src = a.createBufferSource();
+    const lp  = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220;
+    const g   = a.createGain();         g.gain.value = 0.042;
+    src.buffer = buf;
+    src.connect(lp); lp.connect(g); g.connect(getMasterGain());
+    src.start();
+  } catch(e) {}
+}
+
+// Reversed-decay whisper — subtle Mimic movement tell
+export function playMimicWhisper() {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.08);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(i / len, 0.5) * (1 - i / len); // grows then fades
+    const src = a.createBufferSource();
+    const lp  = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160;
+    const g   = a.createGain();         g.gain.value = 0.055;
+    src.buffer = buf;
+    src.connect(lp); lp.connect(g); g.connect(getMasterGain());
+    src.start();
   } catch(e) {}
 }
 
@@ -491,6 +536,192 @@ export function playCursedFlash() {
   tone(130, 'sawtooth', 0.55, 0.42);
   tone(195, 'square',   0.50, 0.32, 0.04);
   tone(78,  'sawtooth', 0.75, 0.48, 0.02);
+}
+
+// ── Reflection ambient ────────────────────────────────────────────────────────
+// Flanged eerie noise for REFLECTION levels — reversed-wind feel
+
+let reflAmbRunning = false;
+let reflAmbNodes   = null;
+
+export function startReflectionAmbient() {
+  stopReflectionAmbient();
+  reflAmbRunning = true;
+  startReflWind();
+  scheduleReflMoan();
+}
+
+export function stopReflectionAmbient() {
+  reflAmbRunning = false;
+  if (reflAmbNodes) {
+    const n = reflAmbNodes; reflAmbNodes = null;
+    try {
+      const a = getAudio();
+      n.master.gain.cancelScheduledValues(a.currentTime);
+      n.master.gain.setValueAtTime(n.master.gain.value, a.currentTime);
+      n.master.gain.linearRampToValueAtTime(0, a.currentTime + 1.2);
+      setTimeout(() => {
+        try { n.src.stop(); n.lfo.stop(); n.dlfo.stop(); } catch(e) {}
+      }, 1300);
+    } catch(e) {}
+  }
+}
+
+function startReflWind() {
+  try {
+    const a = getAudio(), sr = a.sampleRate;
+    const buf = a.createBuffer(1, sr * 4, sr);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+
+    const src = a.createBufferSource();
+    src.buffer = buf; src.loop = true;
+
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 220; bp.Q.value = 2.8;
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 360;
+
+    // Flanging via LFO-modulated short delay
+    const delay = a.createDelay(0.025); delay.delayTime.value = 0.006;
+    const dlfo  = a.createOscillator(); dlfo.frequency.value = 0.38 + Math.random() * 0.28;
+    const dlfog = a.createGain();       dlfog.gain.value = 0.0038;
+    dlfo.connect(dlfog); dlfog.connect(delay.delayTime);
+
+    const wet   = a.createGain(); wet.gain.value  = 0.52;
+    const dry   = a.createGain(); dry.gain.value  = 0.48;
+    const mix   = a.createGain(); mix.gain.value  = 0.040;
+
+    const lfo  = a.createOscillator(); lfo.frequency.value = 0.08 + Math.random() * 0.05;
+    const lfog = a.createGain();       lfog.gain.value = 0.015;
+    lfo.connect(lfog); lfog.connect(mix.gain);
+
+    const master = a.createGain();
+    master.gain.setValueAtTime(0, a.currentTime);
+    master.gain.linearRampToValueAtTime(1, a.currentTime + 5);
+
+    src.connect(bp); bp.connect(lp);
+    lp.connect(dry); dry.connect(mix);
+    lp.connect(delay); delay.connect(wet); wet.connect(mix);
+    mix.connect(master); master.connect(getMasterGain());
+
+    src.start(); lfo.start(); dlfo.start();
+    reflAmbNodes = { src, lfo, dlfo, master };
+  } catch(e) {}
+}
+
+function scheduleReflMoan() {
+  const wait = 6000 + Math.random() * 10000;
+  setTimeout(() => {
+    if (!reflAmbRunning) return;
+    try {
+      const a   = getAudio();
+      const dur = 2.0 + Math.random() * 2.5;
+      const frq = 50 + Math.random() * 75;
+      const o1  = a.createOscillator(), o2 = a.createOscillator();
+      o1.type = 'sawtooth'; o1.frequency.value = frq;
+      o2.type = 'sawtooth'; o2.frequency.value = frq * 0.997;
+      const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 175;
+      const g  = a.createGain(), t = a.currentTime;
+      g.gain.setValueAtTime(0.042, t);
+      g.gain.setValueAtTime(0.042, t + dur * 0.14);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(getMasterGain());
+      o1.start(t); o1.stop(t + dur + 0.05);
+      o2.start(t); o2.stop(t + dur + 0.05);
+    } catch(e) {}
+    scheduleReflMoan();
+  }, wait);
+}
+
+// Footstep echo — delayed, heavily lowpassed copy played 280 ms after the real step
+export function playReflectionEcho() {
+  try {
+    const a = getAudio();
+    const buf = a.createBuffer(1, a.sampleRate * 0.08, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.max(0, 1 - i / (d.length * 0.25));
+    const src = a.createBufferSource(), g = a.createGain(), f = a.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 110;
+    src.buffer = buf; src.connect(f); f.connect(g); g.connect(getMasterGain());
+    g.gain.value = 0.10;
+    src.start();
+  } catch(e) {}
+}
+
+// ── Audio hallucinations ──────────────────────────────────────────────────────
+// Faint distant footsteps from a random direction — vol ~25% of real enemy sounds
+
+let hallucinRunning = false;
+let hallucinGen     = 0;
+
+function playHallucinationStep(pan) {
+  try {
+    const a = getAudio();
+    const len = Math.floor(a.sampleRate * 0.075);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(Math.max(0, 1 - i / (len * 0.12)), 2.4);
+    const src    = a.createBufferSource();
+    const lp     = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 185;
+    const g      = a.createGain();         g.gain.value = 0.035;
+    const panner = a.createStereoPanner(); panner.pan.value = Math.max(-1, Math.min(1, pan));
+    src.buffer = buf;
+    src.connect(lp); lp.connect(g); g.connect(panner); panner.connect(getMasterGain());
+    src.start();
+  } catch(e) {}
+}
+
+export function startHallucinations(safeCheck, onVignette) {
+  hallucinRunning = false;
+  hallucinGen++;
+  hallucinRunning = true;
+  scheduleHallucination(safeCheck, onVignette, hallucinGen);
+}
+
+export function stopHallucinations() {
+  hallucinRunning = false;
+  hallucinGen++;
+}
+
+function scheduleHallucination(safeCheck, onVignette, gen) {
+  const wait = 25000 + Math.random() * 35000; // 25–60 s
+  setTimeout(() => {
+    if (!hallucinRunning || hallucinGen !== gen) return;
+    if (safeCheck()) {
+      const pan = Math.random() * 2 - 1;
+      playHallucinationStep(pan);
+      // Second step ~45% of the time for realism
+      if (Math.random() < 0.45) {
+        setTimeout(() => {
+          if (hallucinRunning && hallucinGen === gen && safeCheck())
+            playHallucinationStep(pan * 0.72 + (Math.random() - 0.5) * 0.38);
+        }, 155 + Math.random() * 135);
+      }
+      if (Math.random() < 0.2) onVignette();
+    }
+    scheduleHallucination(safeCheck, onVignette, gen);
+  }, wait);
+}
+
+// ── Ending heartbeat ──────────────────────────────────────────────────────────
+// Slow, quiet pulse used under the level-10 ending sequence
+
+let endingHbRunning = false;
+
+export function startEndingHeartbeat() {
+  endingHbRunning = true;
+  scheduleEndingHb();
+}
+
+export function stopEndingHeartbeat() {
+  endingHbRunning = false;
+}
+
+function scheduleEndingHb() {
+  if (!endingHbRunning) return;
+  playHeartbeat(0.30);
+  setTimeout(scheduleEndingHb, 1900 + Math.random() * 500);
 }
 
 export function playMimicPulse(intensity) {
