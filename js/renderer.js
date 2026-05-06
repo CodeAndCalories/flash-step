@@ -22,6 +22,26 @@ export function loadSprites(defs) {
 
 export function getSprite(key) { return spriteCache[key] ?? null; }
 
+export function getSpriteReport() {
+  const loaded = [], failed = [];
+  for (const [k, v] of Object.entries(spriteCache)) (v ? loaded : failed).push(k);
+  return { loaded, failed };
+}
+
+// Enemy visual evolution params by level bracket.
+// dy  = downward Y shift as fraction of projH (hunch/crouch)
+// ws  = width scale multiplier (broader silhouette)
+// hs  = height scale multiplier
+// gl  = glitch mode (level 10+)
+// isMimic: 80% shift, stays more upright
+function getEvoParams(level, isMimic) {
+  const m = isMimic ? 0.8 : 1.0;
+  if (level <= 3) return { dy: 0,          ws: 1.0,            hs: 1.0,           gl: false };
+  if (level <= 6) return { dy: 0.08 * m,   ws: 1 + 0.10 * m,  hs: 1.0,           gl: false };
+  if (level <= 9) return { dy: 0.18 * m,   ws: 1 + 0.30 * m,  hs: 1 - 0.20 * m, gl: false };
+  return           { dy: 0.18 * m,   ws: 1 + 0.30 * m,  hs: 1 - 0.20 * m, gl: true  };
+}
+
 // drawSprite — depth-tested screen-space sprite draw.
 // x, y: top-left corner. w, h: display size. alpha: 0-1 opacity.
 // Returns true if the sprite was visible and drawn.
@@ -49,6 +69,7 @@ export const MAXD = 18;
 export const NR   = 240;
 
 function getWallTheme(level) {
+  if (state.levelType === 'REFLECTION') return 'reflection';
   if (level >= 10) return 'wrong';
   if (level >= 7)  return 'cave';
   if (level >= 4)  return 'sewer';
@@ -145,6 +166,9 @@ export function draw(lit, bob, outline) {
       const hi = (14 + (swp * 8) | 0), lo = (4 - (swp * 2) | 0);
       c0 = `rgba(${hi},3,3,${lit})`; c1 = `rgba(${lo + 2},8,10,${lit})`;
       f0 = `rgba(${lo + 8},9,8,${lit})`; f1 = `rgba(3,${lo},1,${lit})`;
+    } else if (theme === 'reflection') {
+      c0 = `rgba(3,5,9,${lit})`;   c1 = `rgba(7,11,18,${lit})`;
+      f0 = `rgba(5,8,13,${lit})`;  f1 = `rgba(2,3,6,${lit})`;
     } else {
       c0 = `rgba(5,3,3,${lit})`;  c1 = `rgba(18,10,10,${lit})`;
       f0 = `rgba(14,8,8,${lit})`; f1 = `rgba(3,1,1,${lit})`;
@@ -158,10 +182,12 @@ export function draw(lit, bob, outline) {
   }
 
   const cw = W / NR, zb = new Float32Array(NR);
+  const wallTops = new Float32Array(NR), wallWHs = new Float32Array(NR);
 
-  // Full colour render while lit
-  if (lit > 0) {
-    const wallH = theme === 'sewer' ? 0.765 : 0.9;
+  // Ray cast loop — always runs to fill depth buffer and wall geometry
+  {
+    const wallH   = theme === 'sewer' ? 0.765 : 0.9;
+    const effMXD  = lit > 0 ? Math.max(5, MAXD * state.flashBrightness) : MAXD;
     let goalL = NR, goalR = -1, goalTopY = 0, goalWH = 0;
     for (let i = 0; i < NR; i++) {
       const ra = P.angle - HFOV + (i / NR) * FOV;
@@ -170,62 +196,104 @@ export function draw(lit, bob, outline) {
       const corr = dist * Math.cos(ra - P.angle);
       const wh   = Math.min(H / corr * wallH, H * 2.5);
       const top  = (H - wh) / 2 + hs;
-      const br   = Math.pow(Math.max(0, 1 - corr / MAXD), 1.08) * lit;
-      let r, g, b;
-      if (goal) {
-        const gp = 0.7 + 0.3 * Math.sin(Date.now() * 0.003);
-        r = (4 + br * 18) | 0; g = (25 + br * 170 * gp) | 0; b = (4 + br * 22) | 0;
-      } else {
-        const sv    = side === 1 ? 0.72 : 1.0;
-        const mortar = (wx > 0.47 && wx < 0.53) ? 0.6 : 1.0;
-        const shade  = br * sv * mortar;
-        if (theme === 'sewer') {
-          r = (10 + shade * 80) | 0; g = (18 + shade * 90) | 0; b = (12 + shade * 52) | 0;
-        } else if (theme === 'cave') {
-          const n = 0.88 + 0.24 * Math.abs(Math.sin(i * 7.31 + 1.1)); // column-stable noise
-          r = (22 + shade * 128 * n) | 0; g = (10 + shade * 46 * n) | 0; b = (4 + shade * 22 * n) | 0;
-        } else if (theme === 'wrong') {
-          const wb = 0.72 + 0.28 * Math.sin(Date.now() / 3800 * Math.PI * 2);
-          r = (20 + shade * 125 * wb) | 0; g = (5 + shade * 22) | 0; b = (8 + shade * 55 * (1.4 - wb)) | 0;
+      wallTops[i] = top; wallWHs[i] = wh;
+
+      if (lit > 0) {
+        const br = Math.pow(Math.max(0, 1 - corr / effMXD), 1.08) * lit;
+        let r, g, b;
+        if (goal) {
+          const gp = 0.7 + 0.3 * Math.sin(Date.now() * 0.003);
+          r = (4 + br * 18) | 0; g = (25 + br * 170 * gp) | 0; b = (4 + br * 22) | 0;
         } else {
-          r = (18 + shade * 115) | 0; g = (10 + shade * 58) | 0; b = (10 + shade * 62) | 0;
+          const sv     = side === 1 ? 0.72 : 1.0;
+          const mortar = (wx > 0.47 && wx < 0.53) ? 0.6 : 1.0;
+          const shade  = br * sv * mortar;
+          if (theme === 'sewer') {
+            r = (10 + shade * 80) | 0; g = (18 + shade * 90) | 0; b = (12 + shade * 52) | 0;
+          } else if (theme === 'cave') {
+            const n = 0.88 + 0.24 * Math.abs(Math.sin(i * 7.31 + 1.1));
+            r = (22 + shade * 128 * n) | 0; g = (10 + shade * 46 * n) | 0; b = (4 + shade * 22 * n) | 0;
+          } else if (theme === 'wrong') {
+            const wb = 0.72 + 0.28 * Math.sin(Date.now() / 3800 * Math.PI * 2);
+            r = (20 + shade * 125 * wb) | 0; g = (5 + shade * 22) | 0; b = (8 + shade * 55 * (1.4 - wb)) | 0;
+          } else if (theme === 'reflection') {
+            r = (6 + shade * 58) | 0; g = (9 + shade * 75) | 0; b = (16 + shade * 108) | 0;
+          } else {
+            r = (18 + shade * 115) | 0; g = (10 + shade * 58) | 0; b = (10 + shade * 62) | 0;
+          }
         }
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(i * cw, top, cw + 1, wh);
       }
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(i * cw, top, cw + 1, wh);
       if (goal) { if (i < goalL) { goalL = i; goalTopY = top; goalWH = wh; } if (i > goalR) goalR = i; }
     }
-    // Exit door frame + floating particles
-    if (goalL <= goalR) {
-      const doorW  = (goalR - goalL + 1) * cw;
-      // Door sprite rendered as base layer; green frame + particles go on top
-      const doorSpr = getSprite('door');
-      if (doorSpr) ctx.drawImage(doorSpr, goalL * cw, goalTopY, doorW, goalWH);
-      const fw    = Math.max(2, doorW * 0.055);
-      ctx.fillStyle = `rgba(50,255,80,${lit * 0.88})`;
-      ctx.fillRect(goalL * cw, goalTopY, fw, goalWH);              // left post
-      ctx.fillRect((goalR + 1) * cw - fw, goalTopY, fw, goalWH);   // right post
-      ctx.fillRect(goalL * cw, goalTopY, doorW, fw);                // lintel
-      // Floating green particles rising from base
-      const t3 = Date.now() / 1600;
-      for (let p = 0; p < 6; p++) {
-        const frac = (t3 + p * 0.167) % 1;
-        const px   = goalL * cw + doorW * ((p + 0.5) / 6);
-        const py   = (goalTopY + goalWH) - frac * Math.min(goalWH * 0.72, 58);
-        ctx.fillStyle = `rgba(80,255,100,${lit * (0.22 + 0.78 * (1 - frac))})`;
-        ctx.fillRect(px - 1, py, 2, 3);
-      }
-    }
-    // Sewer: occasional drip dots at floor level
-    if (theme === 'sewer') {
-      ctx.fillStyle = `rgba(30,155,50,${lit * 0.10})`;
-      for (let j = 0; j < 5; j++) {
-        const col = (Math.random() * NR) | 0;
-        if (zb[col] > 1.5) {
-          const floorY = H / 2 + (H * 1.65 / zb[col]) * 0.30 + hs;
-          if (floorY < H - 2) ctx.fillRect(col * cw, floorY, 1, 1 + Math.random() * 4);
+
+    if (lit > 0) {
+      // Exit door frame + floating particles
+      if (goalL <= goalR) {
+        const doorW  = (goalR - goalL + 1) * cw;
+        const doorSpr = getSprite('door');
+        if (doorSpr) ctx.drawImage(doorSpr, goalL * cw, goalTopY, doorW, goalWH);
+        const fw    = Math.max(2, doorW * 0.055);
+        ctx.fillStyle = `rgba(50,255,80,${lit * 0.88})`;
+        ctx.fillRect(goalL * cw, goalTopY, fw, goalWH);
+        ctx.fillRect((goalR + 1) * cw - fw, goalTopY, fw, goalWH);
+        ctx.fillRect(goalL * cw, goalTopY, doorW, fw);
+        const t3 = Date.now() / 1600;
+        for (let p = 0; p < 6; p++) {
+          const frac = (t3 + p * 0.167) % 1;
+          const px   = goalL * cw + doorW * ((p + 0.5) / 6);
+          const py   = (goalTopY + goalWH) - frac * Math.min(goalWH * 0.72, 58);
+          ctx.fillStyle = `rgba(80,255,100,${lit * (0.22 + 0.78 * (1 - frac))})`;
+          ctx.fillRect(px - 1, py, 2, 3);
         }
       }
+      // Sewer: occasional drip dots at floor level
+      if (theme === 'sewer') {
+        ctx.fillStyle = `rgba(30,155,50,${lit * 0.10})`;
+        for (let j = 0; j < 5; j++) {
+          const col = (Math.random() * NR) | 0;
+          if (zb[col] > 1.5) {
+            const floorY = H / 2 + (H * 1.65 / zb[col]) * 0.30 + hs;
+            if (floorY < H - 2) ctx.fillRect(col * cw, floorY, 1, 1 + Math.random() * 4);
+          }
+        }
+      }
+      // REFLECTION: second raycaster pass from opposite direction — ghostly mirror on walls
+      if (state.levelType === 'REFLECTION') {
+        ctx.save();
+        for (let i = 0; i < NR; i++) {
+          const mra   = (P.angle + Math.PI) - HFOV + (i / NR) * FOV;
+          const { dist: md, side: ms } = cast(P.x, P.y, mra);
+          const mcorr = md * Math.cos(mra - (P.angle + Math.PI));
+          const mwh   = Math.min(H / mcorr * 0.9, H * 2.5);
+          const mtop  = (H - mwh) / 2 + hs;
+          const mbr   = Math.pow(Math.max(0, 1 - mcorr / MAXD), 1.08) * lit * (ms === 1 ? 0.72 : 1.0);
+          const mr2   = (18 + mbr * 55) | 0;
+          const mg2   = (25 + mbr * 72) | 0;
+          const mbl2  = (40 + mbr * 98) | 0;
+          ctx.globalAlpha = 0.12;
+          ctx.fillStyle   = `rgb(${mr2},${mg2},${mbl2})`;
+          ctx.fillRect(i * cw, mtop, cw + 1, mwh);
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+    }
+  }
+
+  // Floor/ceiling edge glow — bioluminescent moss lines, present even in darkness
+  {
+    const fA  = (0.35 + lit * 0.28).toFixed(2);
+    const cA  = (0.20 + lit * 0.15).toFixed(2);
+    const fSt = `rgba(60,30,30,${fA})`;
+    const cSt = `rgba(60,30,30,${cA})`;
+    for (let i = 0; i < NR; i++) {
+      const top = wallTops[i], wh = wallWHs[i];
+      ctx.fillStyle = fSt;
+      ctx.fillRect(i * cw, top + wh - 2, cw + 1, 2);
+      ctx.fillStyle = cSt;
+      ctx.fillRect(i * cw, top, cw + 1, 2);
     }
   }
 
@@ -660,22 +728,36 @@ export function draw(lit, bob, outline) {
     }
 
     const ba = Math.min(1, lit * 1.1) * Math.min(1, 5 / d);
+
+    // Apply level-bracket visual evolution
+    const evo  = getEvoParams(state.level, false);
+    const evoW = sw * evo.ws, evoH = ph * evo.hs;
+    const evoX = sx - evoW / 2, evoY = sprY + ph * evo.dy;
+    const bucket = Math.floor(Date.now() / 600);
+    const gOffX  = evo.gl ? ((bucket * 7919 + 13) % 9) - 4 : 0;
+    const gOffY  = evo.gl ? ((bucket * 6271 + 17) % 7) - 3 : 0;
+    const fX = evoX + gOffX, fY = evoY + gOffY;
+
     const stalkerSpr = getSprite('stalker');
+    const sprAlpha = Math.min(1, lit * 1.1) * Math.min(1, 6 / d);
     if (stalkerSpr) {
-      // Sprite: distance-based brightness falloff, eyes rendered on top
-      ctx.globalAlpha = Math.min(1, lit * 1.1) * Math.min(1, 6 / d);
-      ctx.drawImage(stalkerSpr, sprX, sprY, sw, ph);
+      ctx.globalAlpha = sprAlpha;
+      ctx.drawImage(stalkerSpr, fX, fY, evoW, evoH);
+      if (evo.gl && Math.random() < 0.15) {
+        ctx.globalAlpha = sprAlpha * 0.30;
+        ctx.drawImage(stalkerSpr, fX + 8, fY, evoW, evoH);
+      }
       ctx.globalAlpha = 1;
     } else {
       ctx.fillStyle = `rgba(5,1,1,${ba})`;
-      ctx.fillRect(sprX + sw * 0.23, sprY + ph * 0.2, sw * 0.54, ph * 0.76);
+      ctx.fillRect(fX + evoW * 0.23, fY + evoH * 0.2, evoW * 0.54, evoH * 0.76);
       ctx.fillStyle = `rgba(8,2,2,${ba})`;
-      ctx.beginPath(); ctx.ellipse(sx, sprY + ph * 0.13, sw * 0.26, ph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sx, fY + evoH * 0.13, evoW * 0.26, evoH * 0.16, 0, 0, Math.PI * 2); ctx.fill();
     }
 
     // Red eye glow always on top (sprite or procedural)
     const ela  = Math.min(1, lit * 1.3) * eyePulse;
-    const esz2 = Math.max(1.5, ph * 0.036), eo2 = Math.max(2, ph * 0.088), ey2 = sprY + ph * 0.1;
+    const esz2 = Math.max(1.5, ph * 0.036), eo2 = Math.max(2, ph * 0.088), ey2 = fY + evoH * 0.1;
     [sx - eo2, sx + eo2].forEach(ex => {
       const eg = ctx.createRadialGradient(ex, ey2, 0, ex, ey2, esz2 * 3.5);
       eg.addColorStop(0, `rgba(255,45,45,${ela})`); eg.addColorStop(1, 'transparent');
@@ -686,9 +768,9 @@ export function draw(lit, bob, outline) {
     });
 
     if (!stalkerSpr && ph > 45) {
-      ctx.strokeStyle = `rgba(4,1,1,${ba * 0.8})`; ctx.lineWidth = Math.max(1, sw * 0.06);
-      ctx.beginPath(); ctx.moveTo(sx - sw * 0.17, sprY + ph * 0.44); ctx.lineTo(sx - sw * 0.6, sprY + ph * 0.7); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(sx + sw * 0.17, sprY + ph * 0.44); ctx.lineTo(sx + sw * 0.6, sprY + ph * 0.7); ctx.stroke();
+      ctx.strokeStyle = `rgba(4,1,1,${ba * 0.8})`; ctx.lineWidth = Math.max(1, evoW * 0.06);
+      ctx.beginPath(); ctx.moveTo(sx - evoW * 0.17, fY + evoH * 0.44); ctx.lineTo(sx - evoW * 0.6, fY + evoH * 0.7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx + evoW * 0.17, fY + evoH * 0.44); ctx.lineTo(sx + evoW * 0.6, fY + evoH * 0.7); ctx.stroke();
     }
     ctx.restore();
   }
@@ -722,6 +804,28 @@ export function draw(lit, bob, outline) {
       const gy = asprY + ((h * 31 + 7) % 997) / 997 * aph;
       ctx.fillStyle = h & 1 ? '#fff' : '#000';
       ctx.fillRect(gx, gy, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // REFLECTION: ghost player — fixed overlay at center, same look as Mimic
+  if (state.levelType === 'REFLECTION' && lit > 0) {
+    const ghostDist = 8;
+    const ghostPH   = Math.min(H * 1.65 / ghostDist, H * 3.5);
+    const ghostSW   = ghostPH * 0.58;
+    const ghostX    = W / 2 - ghostSW / 2;
+    const ghostY    = H / 2 - ghostPH * 0.5 + hs;
+    const ghostA    = 0.15 * (0.72 + 0.28 * Math.sin(Date.now() * 0.0014));
+    const stalkerSpr = getSprite('stalker');
+    ctx.save();
+    ctx.globalAlpha = ghostA * Math.min(1, lit * 1.4);
+    if (stalkerSpr) {
+      ctx.drawImage(stalkerSpr, ghostX, ghostY, ghostSW, ghostPH);
+    } else {
+      ctx.fillStyle = 'rgba(210,215,255,1)';
+      ctx.fillRect(ghostX + ghostSW * 0.23, ghostY + ghostPH * 0.2, ghostSW * 0.54, ghostPH * 0.76);
+      ctx.beginPath(); ctx.ellipse(W / 2, ghostY + ghostPH * 0.13, ghostSW * 0.26, ghostPH * 0.16, 0, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -762,20 +866,23 @@ export function draw(lit, bob, outline) {
     for (let sc = msc0; sc <= msc1; sc++) if (zb[sc] > md) ctx.rect(sc * cw, 0, cw + 1, H);
     ctx.clip();
     const mba = Math.min(1, lit * 0.65) * Math.min(1, 5 / md) * 0.50;
+    const mevo  = getEvoParams(state.level, true); // mimic = 80% shift
+    const mevoW = msw * mevo.ws, mevoH = mph * mevo.hs;
+    const mevoX = msx - mevoW / 2, mevoY = msprY + mph * mevo.dy;
     const mimicSpr = getSprite('mimic');
     if (mimicSpr) {
       ctx.globalCompositeOperation = 'screen'; // black bg → transparent
       ctx.globalAlpha = mba;
-      ctx.drawImage(mimicSpr, msprX, msprY, msw, mph);
+      ctx.drawImage(mimicSpr, mevoX, mevoY, mevoW, mevoH);
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     } else {
       ctx.fillStyle = `rgba(8,6,12,${mba})`;
-      ctx.fillRect(msprX + msw * 0.23, msprY + mph * 0.2, msw * 0.54, mph * 0.76);
+      ctx.fillRect(mevoX + mevoW * 0.23, mevoY + mevoH * 0.2, mevoW * 0.54, mevoH * 0.76);
       ctx.fillStyle = `rgba(10,8,16,${mba})`;
-      ctx.beginPath(); ctx.ellipse(msx, msprY + mph * 0.13, msw * 0.26, mph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(msx, mevoY + mevoH * 0.13, mevoW * 0.26, mevoH * 0.16, 0, 0, Math.PI * 2); ctx.fill();
     }
     const mela = Math.min(1, lit * 1.0) * mimicPulse * 0.85;
-    const mesz2 = Math.max(1.5, mph * 0.036), meo2 = Math.max(2, mph * 0.088), mey2 = msprY + mph * 0.1;
+    const mesz2 = Math.max(1.5, mph * 0.036), meo2 = Math.max(2, mph * 0.088), mey2 = mevoY + mevoH * 0.1;
     [msx - meo2, msx + meo2].forEach(ex => {
       const eg = ctx.createRadialGradient(ex, mey2, 0, ex, mey2, mesz2 * 3.5);
       eg.addColorStop(0, `rgba(200,200,255,${mela})`); eg.addColorStop(1, 'transparent');
@@ -855,12 +962,31 @@ export function draw(lit, bob, outline) {
       for (let sc = esc0; sc <= esc1; sc++) if (zb[sc] > esdist) ctx.rect(sc * cw, 0, cw + 1, H);
       ctx.clip();
       const esba = Math.min(1, lit * 1.1) * Math.min(1, 5 / esdist);
-      ctx.fillStyle = `rgba(5,1,3,${esba})`;
-      ctx.fillRect(esprX + essw * 0.23, esprY + esph * 0.2, essw * 0.54, esph * 0.76);
-      ctx.fillStyle = `rgba(8,2,5,${esba})`;
-      ctx.beginPath(); ctx.ellipse(essx, esprY + esph * 0.13, essw * 0.26, esph * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      const esevo  = getEvoParams(state.level, false);
+      const esevoW = essw * esevo.ws, esevoH = esph * esevo.hs;
+      const esevoX = essx - esevoW / 2, esevoY = esprY + esph * esevo.dy;
+      const esBucket = Math.floor(Date.now() / 600);
+      const esGX = esevo.gl ? ((esBucket * 7919 + 31) % 9) - 4 : 0;
+      const esGY = esevo.gl ? ((esBucket * 6271 + 41) % 7) - 3 : 0;
+      const esFX = esevoX + esGX, esFY = esevoY + esGY;
+      const estalkerSpr = getSprite('stalker');
+      if (estalkerSpr) {
+        const essprAlpha = Math.min(1, lit * 1.1) * Math.min(1, 6 / esdist);
+        ctx.globalAlpha = essprAlpha;
+        ctx.drawImage(estalkerSpr, esFX, esFY, esevoW, esevoH);
+        if (esevo.gl && Math.random() < 0.15) {
+          ctx.globalAlpha = essprAlpha * 0.30;
+          ctx.drawImage(estalkerSpr, esFX + 8, esFY, esevoW, esevoH);
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.fillStyle = `rgba(5,1,3,${esba})`;
+        ctx.fillRect(esFX + esevoW * 0.23, esFY + esevoH * 0.2, esevoW * 0.54, esevoH * 0.76);
+        ctx.fillStyle = `rgba(8,2,5,${esba})`;
+        ctx.beginPath(); ctx.ellipse(essx, esFY + esevoH * 0.13, esevoW * 0.26, esevoH * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      }
       const esela = Math.min(1, lit * 1.3) * espulse;
-      const esesz2 = Math.max(1.5, esph * 0.036), eseo2 = Math.max(2, esph * 0.088), esey2 = esprY + esph * 0.1;
+      const esesz2 = Math.max(1.5, esph * 0.036), eseo2 = Math.max(2, esph * 0.088), esey2 = esFY + esevoH * 0.1;
       [essx - eseo2, essx + eseo2].forEach(ex => {
         const eg = ctx.createRadialGradient(ex, esey2, 0, ex, esey2, esesz2 * 3.5);
         eg.addColorStop(0, `rgba(255,30,100,${esela})`); eg.addColorStop(1, 'transparent');
@@ -933,6 +1059,14 @@ export function draw(lit, bob, outline) {
     wvg.addColorStop(0, 'transparent');
     wvg.addColorStop(1, `rgba(200,195,168,${wa})`);
     ctx.fillStyle = wvg; ctx.fillRect(0, 0, W, H);
+  }
+
+  // Hallucination vignette — brief red flash paired with fake footstep sounds
+  if (state.hallucinVignette > 0) {
+    const hv = ctx.createRadialGradient(W / 2, H / 2, H * 0.08, W / 2, H / 2, H * 0.75);
+    hv.addColorStop(0, 'transparent');
+    hv.addColorStop(1, `rgba(110,0,0,${(state.hallucinVignette * 0.38).toFixed(3)})`);
+    ctx.fillStyle = hv; ctx.fillRect(0, 0, W, H);
   }
 
   // Minimap — shown for 4 s after first flash

@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash } from './audio.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash, startHallucinations, stopHallucinations, startEndingHeartbeat, stopEndingHeartbeat, startReflectionAmbient, stopReflectionAmbient, playReflectionEcho, playStalkerDrag, playMimicWhisper } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
-import { draw, loadSprites } from './renderer.js';
+import { draw, loadSprites, getSpriteReport } from './renderer.js';
 import { stepEnemy, stepMimic, stepBlindOne, stepEntity, checkEnd, isWall } from './enemy.js';
 
 const NOTE_TEXTS = [
@@ -27,18 +27,20 @@ function getNoteText(lvl) {
 // Each completed cycle (every 4 levels) adds 8 % enemy speed and +2 maze cells.
 const CYCLE_TYPES = ['ECHO', 'SILENCE', 'GAUNTLET', 'HUNT'];
 const TYPE_SUBS   = {
-  HUNT:       'STALKER ONLY · SMALL MAZE',
-  ECHO:       'MIMIC ONLY · LARGE MAZE',
-  SILENCE:    'BLIND ONE · NO HEARTBEAT',
-  GAUNTLET:   'ALL ENEMIES',
-  'LIGHTS ON':'FULLY ILLUMINATED · PURE CHASE',
+  HUNT:         'STALKER ONLY · SMALL MAZE',
+  ECHO:         'MIMIC ONLY · LARGE MAZE',
+  SILENCE:      'BLIND ONE · NO HEARTBEAT',
+  GAUNTLET:     'ALL ENEMIES',
+  'LIGHTS ON':  'FULLY ILLUMINATED · PURE CHASE',
+  REFLECTION:   'MIMIC ONLY · MIRROR MAZE',
 };
 const FLAVOR_TEXT = {
-  HUNT:       "It knows you're here.",
-  ECHO:       "It remembers your path.",
-  SILENCE:    "Don't make a sound.",
-  GAUNTLET:   "They're all here.",
-  'LIGHTS ON':"Nowhere to hide.",
+  HUNT:         "It knows you're here.",
+  ECHO:         "It remembers your path.",
+  SILENCE:      "Don't make a sound.",
+  GAUNTLET:     "They're all here.",
+  'LIGHTS ON':  "Nowhere to hide.",
+  REFLECTION:   "Which one is moving?",
 };
 const DEATH_MSGS = {
   stalker:       { title: 'FOUND',      sub: 'It never stopped moving.' },
@@ -46,10 +48,13 @@ const DEATH_MSGS = {
   blindone:      { title: 'HEARD',      sub: 'You should have stayed still.' },
   cursed:        { title: 'BETRAYED',   sub: 'The camera chose its side.' },
   extra_stalker: { title: 'SURROUNDED', sub: 'There were too many.' },
+  reflection:    { title: 'MIRRORED',   sub: 'You followed yourself in.' },
 };
-const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0, 'LIGHTS ON': 0 };
+const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0, 'LIGHTS ON': 0, REFLECTION: 2 };
 
 function getLevelInfo(level) {
+  // REFLECTION: every 7th level (7, 14, 21, 28, …) — takes priority over other overrides
+  if (level >= 7 && level % 7 === 0) return { type: 'REFLECTION', cycle: Math.floor(level / 7) };
   // Every 5th level from level 11 onwards is LIGHTS ON (fully lit, pure chase)
   if (level >= 11 && (level - 11) % 5 === 0) return { type: 'LIGHTS ON', cycle: 0 };
   if (level <= 2) return { type: 'HUNT', cycle: 0 };
@@ -58,9 +63,8 @@ function getLevelInfo(level) {
   return { type: CYCLE_TYPES[idx], cycle };
 }
 
-const MOVE_SPD   = 3.2;
-const TURN_SPD   = 2.5;
-const MOUSE_SENS = 0.003;
+const MOVE_SPD   = 2.2;
+const TURN_SPD   = 2.0;
 let   mouseDeltaX = 0;
 
 function resize() {
@@ -74,6 +78,7 @@ function initGame() {
   state.levelType         = type;
   const useStalker        = type === 'HUNT' || type === 'GAUNTLET' || type === 'LIGHTS ON';
   const useBlind          = type === 'SILENCE' || type === 'GAUNTLET';
+  const useReflection     = type === 'REFLECTION';
   const cycleBonus        = Math.max(0, cycle - 1) * 2;
   const sz = Math.max(9, Math.min(9 + state.level * 2 + cycleBonus + TYPE_MAZE_MOD[type], 35));
   const s  = sz % 2 === 0 ? sz + 1 : sz;
@@ -99,6 +104,17 @@ function initGame() {
   }
   shuf(cands);
   const [ec, er] = cands[Math.random() * Math.min(cands.length, Math.max(1, cands.length * 0.2)) | 0];
+  // REFLECTION: find mimic spawn far from player start (use dp = distance from player BFS)
+  let reflMX = 1.5, reflMY = 1.5;
+  if (useReflection) {
+    let bestR = -1;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      if (state.MAP[r][c] === 1 || (c === 1 && r === 1) || (c === gc && r === gr)) continue;
+      const d = dp[r][c];
+      if (d > bestR) { bestR = d; reflMX = c + 0.5; reflMY = r + 0.5; }
+    }
+  }
+
   // Stalker active only in HUNT and GAUNTLET
   state.E.active    = useStalker;
   state.E.x         = useStalker ? ec + 0.5 : -5;
@@ -155,15 +171,16 @@ function initGame() {
 
   // Place decoy eyes in dead ends far from the player start
   const deadEnds = findDeadEnds(state.MAP, cols, rows);
-  const numDecoys = Math.min(2 + Math.floor(state.level / 3), 5);
+  const numDecoys = Math.min(3 + Math.floor(state.level / 5), 5);
   shuf(deadEnds);
   state.decoys = deadEnds
     .filter(([c, r]) => (c - 1) ** 2 + (r - 1) ** 2 > 9)
     .slice(0, numDecoys)
     .map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, phase: Math.random() * Math.PI * 2 }));
 
-  // Levels 1-3 and LIGHTS ON: unlimited/hidden flash
-  state.flashCount = (state.level <= 3 || type === 'LIGHTS ON') ? Infinity : 8;
+  // Flash is always unlimited; batteries increase brightness instead
+  state.flashCount      = Infinity;
+  state.flashBrightness = 0.35;
   state.flashHeld = false; state.flashAlpha = 0;
   state.flashDecay = 0; state.outlineAlpha = 0; state.flashHeldMs = 0;
   state.bobTimer = 0; state.isMoving = false; state.footstepTimer = 0;
@@ -173,7 +190,9 @@ function initGame() {
   state.flashDrainCount = 0;
   state.panicLevel      = 0; state.panicDecayTimer = 0;
   state.playerHistory   = []; state.historyTimer = 0;
-  state.M               = { x: 1.5, y: 1.5, active: false, moveTimer: 0 };
+  state.M = useReflection
+    ? { x: reflMX, y: reflMY, active: true, moveTimer: 0 }
+    : { x: 1.5, y: 1.5, active: false, moveTimer: 0 };
   state.mimicSoundTimer  = 0;
   state.afterimages     = []; state.lastKnownE = null; state.lastKnownM = null; state.lastKnownB = null;
   state.killedBy        = null;
@@ -182,12 +201,20 @@ function initGame() {
   state.batCooldown     = 5000; state.bat = null; state.rat = null;
   state.lastPlayerCell  = { c: 1, r: 1 }; state.webEffect = null;
   state.stamina         = 1.0;  state.sprinting = false;
+  state.levelTimer        = 0;
+  state.hallucinVignette  = 0;
+  state.replayBuffer      = [];
+  state.replayRecordTimer = 0;
+  state.deathReplay       = null;
   state.cursedFlash     = false; state.cursedTimer = 0; state.cursedBurnCount = 0;
   state.cursedDrainAccum = 0;   state.cursedEnemyTimer = 0;
   state.spawnWarning         = null;
   state.flashTooltipTimer    = state.level === 1 ? 6000 : 0;
   state.limitedWarningTimer  = state.level === 4 ? 3000 : 0;
   state.flashesUsedThisLevel = 0;
+  state.hintText  = ''; state.hintTimer = 0;
+  state.level1Hints    = { flash: false, door: false, enemy: false, idle: false };
+  state.level1IdleMs   = 0; state.level1DoorMs = 0;
   resetPanicAudio();
   showLevelIntro();
   updateUI();
@@ -207,8 +234,32 @@ function loop(ts) {
     return;
   }
 
+  if (state.gameState === 'replay') {
+    stepReplay(dt);
+    state.frameId = requestAnimationFrame(loop);
+    return;
+  }
+
   if (state.paused)                  { state.frameId = requestAnimationFrame(loop); return; }
   if (state.gameState !== 'playing') { state.frameId = requestAnimationFrame(loop); return; }
+
+  state.levelTimer += dt;
+  if (state.hintTimer > 0) state.hintTimer -= dt;
+
+  // Level 1 hints — show once, never again
+  if (state.level === 1 && !state.paused) {
+    const h = state.level1Hints;
+    state.level1DoorMs += dt;
+    if (!state.isMoving) state.level1IdleMs += dt; else state.level1IdleMs = 0;
+    if (!h.flash && state.firstFlashDone) {
+      showHint('HOLD to illuminate longer', 3000); h.flash = true;
+    } else if (!h.door && state.level1DoorMs > 10000) {
+      showHint('Find the GREEN DOOR to escape', 3000); h.door = true;
+    } else if (!h.idle && state.level1IdleMs > 30000) {
+      showHint(isMouseMode() ? 'Use WASD to move, MOUSE to look' : 'Use arrow keys or DPAD to move', 3500);
+      h.idle = true;
+    }
+  }
 
   const prevFlashHeld = state.flashHeld;
 
@@ -272,12 +323,9 @@ function loop(ts) {
     state.ENEMY_MS     = 150;
     // Extra stamina drain (3× rate)
     state.stamina = Math.max(0, state.stamina - dt * 2 / 4000);
-    // 3 battery drains over duration (~1 per 3.3 s)
-    state.cursedDrainAccum += dt;
-    while (state.cursedDrainAccum >= 3333) {
-      state.cursedDrainAccum -= 3333;
-      state.flashCount = Math.max(0, state.flashCount - 1);
-    }
+    // Cursed flash forces maximum brightness
+    state.flashBrightness = 1.0;
+    state.cursedDrainAccum = 0; // drain removed — flash is unlimited
     if (state.cursedTimer <= 0) {
       state.cursedFlash     = false;
       state.flashHeld       = false;
@@ -316,7 +364,7 @@ function loop(ts) {
             - (keys['s'] || keys['arrowdown'] || dpad.back ? 1 : 0);
 
   if (mouse) {
-    P.angle    += mouseDeltaX * MOUSE_SENS;
+    P.angle    += mouseDeltaX * settings.mouseSens;
     mouseDeltaX = 0;
     state.lookDelta = 0;
   } else {
@@ -343,28 +391,36 @@ function loop(ts) {
     state.stamina = Math.min(1, state.stamina + regen);
   }
   const inWeb  = !!state.webEffect;
-  const effSPD = inWeb ? MOVE_SPD * 0.4 : state.sprinting ? MOVE_SPD * 1.9 : MOVE_SPD;
+  const effSPD = inWeb ? MOVE_SPD * 0.4 : state.sprinting ? MOVE_SPD * 1.6 : MOVE_SPD;
 
   state.isMoving = false;
   if (fwd !== 0 || strafe !== 0) {
     const spd = effSPD * dt / 1000;
+    let wallHit = false;
     if (fwd !== 0) {
       const nx = P.x + Math.cos(P.angle) * spd * fwd;
       const ny = P.y + Math.sin(P.angle) * spd * fwd;
-      if (!isWall(nx, P.y)) P.x = nx;
-      if (!isWall(P.x, ny)) P.y = ny;
+      if (!isWall(nx, P.y)) P.x = nx; else wallHit = true;
+      if (!isWall(P.x, ny)) P.y = ny; else wallHit = true;
     }
     if (strafe !== 0) {
       const sx = -Math.sin(P.angle) * spd * strafe;
       const sy =  Math.cos(P.angle) * spd * strafe;
-      if (!isWall(P.x + sx, P.y)) P.x += sx;
-      if (!isWall(P.x, P.y + sy)) P.y += sy;
+      if (!isWall(P.x + sx, P.y)) P.x += sx; else wallHit = true;
+      if (!isWall(P.x, P.y + sy)) P.y += sy; else wallHit = true;
+    }
+    // Subtle bump feedback when walking into a wall
+    if (wallHit && settings.screenshake) {
+      state.shakeX = (Math.random() - 0.5) * 1.5;
+      state.shakeY = (Math.random() - 0.5) * 1.5;
+      state.shakeAmt = 0.15; // decays in ~50 ms at renderer's 0.045/frame rate
     }
     state.bobTimer    += dt * 0.009;
     state.isMoving     = true;
     state.footstepTimer -= dt;
     if (state.footstepTimer <= 0) {
       playFootstep();
+      if (state.levelType === 'REFLECTION') setTimeout(playReflectionEcho, 280);
       state.footstepTimer = state.sprinting ? 230 : 370;
     }
     const last = state.crumbs[state.crumbs.length - 1];
@@ -380,7 +436,7 @@ function loop(ts) {
   state.batteries = state.batteries.filter(b => {
     const dx = state.P.x - b.x, dy = state.P.y - b.y;
     if (dx * dx + dy * dy < 0.36) {
-      state.flashCount = Math.min(state.flashCount + 3, 12);
+      state.flashBrightness = Math.min(1.0, state.flashBrightness + 0.12);
       playPickup();
       return false;
     }
@@ -492,9 +548,15 @@ function loop(ts) {
 
   // Stalker moves: when flash is on, OR always in LIGHTS ON
   if (state.E.active && (state.flashAlpha > 0.04 || state.levelType === 'LIGHTS ON')) {
-    if (!state.firstFlashDone) { state.firstFlashDone = true; state.minimapTimer = 4; }
+    if (!state.firstFlashDone) {
+      state.firstFlashDone = true; state.minimapTimer = 4;
+      if (state.level === 1 && state.level1Hints && !state.level1Hints.enemy) {
+        showHint('IT MOVES WHEN YOU LOOK', 3000); state.level1Hints.enemy = true;
+      }
+    }
     state.E.moveTimer += dt;
-    while (state.E.moveTimer >= state.ENEMY_MS) { state.E.moveTimer -= state.ENEMY_MS; stepEnemy(); }
+    const stalkerEffMS = Math.max(150, state.ENEMY_MS / getBrightSpeedMult());
+    while (state.E.moveTimer >= stalkerEffMS) { state.E.moveTimer -= stalkerEffMS; stepEnemy(); playStalkerDrag(); }
   }
   if (state.minimapTimer > 0) state.minimapTimer -= dt / 1000;
 
@@ -549,10 +611,19 @@ function loop(ts) {
     // During panic: mimic also BFS-hunts player (slower than main enemy)
     if (state.M.active && state.panicLevel > 0) {
       state.M.moveTimer += dt;
-      const mimicMS = Math.max(320, state.ENEMY_MS * 1.8);
-      while (state.M.moveTimer >= mimicMS) { state.M.moveTimer -= mimicMS; stepMimic(); }
+      const mimicMS = Math.max(320, state.ENEMY_MS * 1.8 / getBrightSpeedMult());
+      while (state.M.moveTimer >= mimicMS) { state.M.moveTimer -= mimicMS; stepMimic(); playMimicWhisper(); }
     } else {
       state.M.moveTimer = 0;
+    }
+  }
+
+  // REFLECTION: mimic mirrors player movement — steps when player moves OR flash is on
+  if (state.levelType === 'REFLECTION' && state.M.active) {
+    if (state.isMoving || state.flashAlpha > 0.04) {
+      state.M.moveTimer += dt;
+      const mimicMS = Math.max(300, state.ENEMY_MS / getBrightSpeedMult());
+      while (state.M.moveTimer >= mimicMS) { state.M.moveTimer -= mimicMS; stepMimic(); }
     }
   }
 
@@ -587,16 +658,35 @@ function loop(ts) {
     updatePanicAudio(state.panicLevel, Math.sin(eAng) * 0.85, pd);
   }
 
+  // Hallucination vignette decay (200 ms flash)
+  if (state.hallucinVignette > 0)
+    state.hallucinVignette = Math.max(0, state.hallucinVignette - dt / 200);
+
   // Afterimage alpha decay
   for (const ai of state.afterimages) ai.alpha -= dt / 3000;
   state.afterimages = state.afterimages.filter(ai => ai.alpha > 0);
+
+  // Record positions every 100 ms into circular replay buffer (last 8 s)
+  state.replayRecordTimer += dt;
+  while (state.replayRecordTimer >= 100) {
+    state.replayRecordTimer -= 100;
+    state.replayBuffer.push({
+      px: state.P.x, py: state.P.y,
+      ex: state.E.active ? state.E.x : null, ey: state.E.active ? state.E.y : null,
+      mx: state.M.active ? state.M.x : null, my: state.M.active ? state.M.y : null,
+      bx: state.B.active ? state.B.x : null, by: state.B.active ? state.B.y : null,
+      extras: state.extraStalkers.map(e => ({ x: e.x, y: e.y })),
+    });
+    if (state.replayBuffer.length > 80) state.replayBuffer.shift();
+  }
 
   const result = checkEnd();
   if (result) {
     state.gameState = result; state.flashHeld = false;
     if (result === 'dead' && state.cursedFlash) state.killedBy = 'cursed';
+    if (result === 'dead' && state.levelType === 'REFLECTION' && state.killedBy === 'mimic') state.killedBy = 'reflection';
     if (isMouseMode() && document.pointerLockElement) document.exitPointerLock();
-    stopAmbient(); stopExitHum(); resetPanicAudio();
+    stopLevelAmbient(); stopExitHum(); stopHallucinations(); resetPanicAudio();
     if (result === 'dead') {
       state.jumpScareTimer = 1.0;
       if (settings.screenshake) {
@@ -609,7 +699,13 @@ function loop(ts) {
     } else {
       playWin();
     }
-    setTimeout(() => showMsg(result), result === 'dead' ? 600 : 480);
+    if (result === 'dead' && !state.cursedFlash) {
+      setTimeout(startDeathReplay, 600);
+    } else if (result === 'win' && state.level === 10) {
+      setTimeout(showEndingSequence, 480);
+    } else {
+      setTimeout(() => showMsg(result), result === 'dead' ? 600 : 480);
+    }
   }
 
   // Exit hum — distance + bearing to goal
@@ -621,21 +717,32 @@ function loop(ts) {
 
   updateUI();
   const bob = state.isMoving ? Math.sin(state.bobTimer) * 0.036 : 0;
-  draw(state.levelType === 'LIGHTS ON' ? 1.0
-     : state.flashAlpha > 0 ? state.flashAlpha : state.flashDecay * 0.32, bob, state.outlineAlpha);
+  const effBright = state.cursedFlash ? 1.0 : state.flashBrightness;
+  const rawLit = state.levelType === 'LIGHTS ON' ? 1.0
+    : (state.flashAlpha > 0 ? state.flashAlpha : state.flashDecay * 0.32) * effBright;
+  draw(rawLit, bob, state.outlineAlpha);
   state.frameId = requestAnimationFrame(loop);
 }
 
 function updateUI() {
-  const flashEl    = document.getElementById('s-flash');
-  const unlimited  = state.flashCount === Infinity;
-  flashEl.style.display = unlimited ? 'none' : '';
-  if (!unlimited) {
-    flashEl.textContent = `FLASHES: ${state.flashCount}`;
-    flashEl.classList.toggle('low-battery', state.flashCount <= 2 && state.gameState === 'playing');
-    flashEl.classList.remove('flash-draining');
+  // Brightness bar
+  const bFill = document.getElementById('brightness-bar-fill');
+  if (bFill) bFill.style.width = `${Math.round(state.flashBrightness * 100)}%`;
+  const visEl = document.getElementById('s-visible');
+  if (visEl) visEl.style.display =
+    (state.flashHeld && state.flashBrightness > 0.4 && state.gameState === 'playing') ? 'block' : 'none';
+  // Hint display
+  const hintEl = document.getElementById('hint-display');
+  if (hintEl) {
+    if (state.hintTimer > 0) {
+      hintEl.style.display = 'block';
+      hintEl.style.opacity = String(Math.min(1, state.hintTimer / 600));
+      hintEl.textContent   = state.hintText;
+    } else {
+      hintEl.style.display = 'none';
+    }
   }
-  document.getElementById('s-level').textContent = `LEVEL: ${state.level}`;
+  document.getElementById('s-level').textContent = state.level > 10 ? '∞ ENDLESS' : `LEVEL: ${state.level}`;
   const sType = document.getElementById('s-type');
   if (sType) sType.textContent = state.levelType || '';
   const dx = state.P.x - (state.COLS - 1.5), dy = state.P.y - (state.ROWS - 1.5);
@@ -755,6 +862,198 @@ function generateShareCard() {
   a.click();
 }
 
+// ── Death replay ─────────────────────────────────────────────────────────────
+
+function startDeathReplay() {
+  if (!state.replayBuffer.length) { showMsg('dead'); return; }
+  state.gameState = 'replay';
+  const dr = {
+    frames:  [...state.replayBuffer],
+    elapsed: 0,
+    phase:   'fadeout',
+    onSkip:  null,
+  };
+  state.deathReplay = dr;
+
+  function onSkip() {
+    window.removeEventListener('keydown',     onSkip);
+    window.removeEventListener('pointerdown', onSkip);
+    window.removeEventListener('touchstart',  onSkip);
+    window.removeEventListener('touchend',    onSkip);
+    endReplay();
+  }
+  dr.onSkip = onSkip;
+  window.addEventListener('keydown',     onSkip);
+  window.addEventListener('pointerdown', onSkip);
+  window.addEventListener('touchstart',  onSkip, { passive: true });
+  window.addEventListener('touchend',    onSkip, { passive: true });
+}
+
+function endReplay() {
+  const dr = state.deathReplay;
+  if (dr?.onSkip) {
+    window.removeEventListener('keydown',     dr.onSkip);
+    window.removeEventListener('pointerdown', dr.onSkip);
+    window.removeEventListener('touchstart',  dr.onSkip);
+    window.removeEventListener('touchend',    dr.onSkip);
+  }
+  state.deathReplay = null;
+  state.gameState   = 'dead';
+  showMsg('dead');
+}
+
+function stepReplay(dt) {
+  const dr = state.deathReplay;
+  if (!dr) { showMsg('dead'); return; }
+  const { ctx, W, H } = state;
+
+  dr.elapsed += dt;
+
+  if (dr.phase === 'fadeout') {
+    const t = Math.min(1, dr.elapsed / 300);
+    ctx.fillStyle = `rgba(0,0,0,${t.toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+    if (dr.elapsed >= 300) { dr.phase = 'playing'; dr.elapsed = 0; }
+    return;
+  }
+
+  renderTopDownReplay(dr);
+  if (dr.elapsed >= 3000) endReplay();
+}
+
+function renderTopDownReplay(dr) {
+  const { ctx, W, H, MAP, COLS, ROWS } = state;
+  const frames = dr.frames;
+  const n      = frames.length;
+
+  // How many frames to reveal (animates across the 3 s window)
+  const progress  = Math.min(1, dr.elapsed / 3000);
+  const showCount = Math.max(1, Math.ceil(progress * n));
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Fit maze to 88 % of the shorter axis, centred, with room for label
+  const labelH  = Math.max(28, H * 0.06);
+  const usableH = H - labelH * 2;
+  const cell    = Math.min(W * 0.88 / COLS, usableH * 0.88 / ROWS);
+  const offX    = (W - cell * COLS) / 2;
+  const offY    = (usableH - cell * ROWS) / 2;
+
+  // Walls
+  ctx.fillStyle = '#1d1d1d';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (MAP[r][c] === 1) ctx.fillRect(offX + c * cell, offY + r * cell, cell + 0.5, cell + 0.5);
+    }
+  }
+
+  // Goal cell highlight
+  ctx.fillStyle = '#0a2a0a';
+  ctx.fillRect(offX + (COLS - 2) * cell, offY + (ROWS - 2) * cell, cell, cell);
+
+  // Convert world → screen coords
+  const ws = (wx, wy) => [offX + wx * cell, offY + wy * cell];
+
+  const dotR = Math.max(1.5, cell * 0.18);
+
+  function drawTrail(getPos, color) {
+    for (let i = 0; i < showCount; i++) {
+      const pos = getPos(frames[i]);
+      if (!pos) continue;
+      const [sx, sy] = ws(pos[0], pos[1]);
+      const age   = showCount < 2 ? 1 : i / (showCount - 1);
+      const r     = (i === showCount - 1) ? dotR * 2 : dotR;
+      ctx.globalAlpha = 0.12 + age * 0.88;
+      ctx.fillStyle   = color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Enemy trails (drawn first so player renders on top)
+  drawTrail(f => f.ex != null ? [f.ex, f.ey] : null, '#ff3030');
+  drawTrail(f => f.bx != null ? [f.bx, f.by] : null, '#888888');
+  drawTrail(f => f.mx != null ? [f.mx, f.my] : null, '#dddddd');
+  const extraColors = ['#ff6600', '#ff00aa', '#9900ff'];
+  for (let ei = 0; ei < state.extraStalkers.length; ei++) {
+    drawTrail(f => f.extras?.[ei] ? [f.extras[ei].x, f.extras[ei].y] : null,
+              extraColors[ei % extraColors.length]);
+  }
+
+  // Player trail (white, on top)
+  drawTrail(f => [f.px, f.py], '#ffffff');
+
+  // "THIS IS WHERE IT FOUND YOU" label
+  ctx.globalAlpha = Math.min(1, dr.elapsed / 600); // fade in with the replay
+  const fontSize  = Math.max(10, Math.floor(W * 0.022));
+  ctx.font        = `bold ${fontSize}px 'Courier New', monospace`;
+  ctx.textAlign   = 'center';
+  ctx.fillStyle   = 'rgba(220,50,50,0.9)';
+  ctx.fillText('THIS IS WHERE IT FOUND YOU', W / 2, H - labelH * 0.4);
+  const skipHint  = isMouseMode() ? 'PRESS ANY KEY TO SKIP' : 'TAP TO SKIP';
+  ctx.font        = `${Math.max(8, Math.floor(W * 0.013))}px 'Courier New', monospace`;
+  ctx.fillStyle   = 'rgba(255,255,255,0.22)';
+  ctx.fillText(skipHint, W / 2, H - labelH * 0.4 + Math.max(14, fontSize * 1.6));
+  ctx.globalAlpha = 1;
+
+  // Red vignette
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.28,
+                                       W / 2, H / 2, Math.min(W, H) * 0.78);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(55,0,0,0.6)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ── Level 10 ending sequence ──────────────────────────────────────────────────
+
+function showEndingSequence() {
+  const overlay = document.getElementById('ending-seq');
+  const cardEl  = document.getElementById('ending-card');
+  overlay.style.display = 'flex';
+
+  const CARDS = [
+    { text: 'You found the exit.',      dur: 2000 },
+    { text: 'It was open.',             dur: 2000 },
+    { text: 'It was always open.',      dur: 2000 },
+    { text: "You've escaped 10 times.", dur: 3000 },
+    { text: 'So has it.',               dur: 3000 },
+    { text: null,                       dur: 4000 },
+  ];
+
+  startEndingHeartbeat();
+  let idx = 0;
+
+  function nextCard() {
+    if (idx >= CARDS.length) {
+      stopEndingHeartbeat();
+      overlay.style.display = 'none';
+      showMsg('win');
+      return;
+    }
+    const card = CARDS[idx++];
+    cardEl.innerHTML = card.text === null
+      ? `<span class="ending-title">THE FLASH-STEP</span><span class="ending-sub">Thank you for playing</span>`
+      : `<span class="ending-main">${card.text}</span>`;
+
+    cardEl.style.transition = 'none';
+    cardEl.style.opacity    = '0';
+    void cardEl.offsetHeight;
+    cardEl.style.transition = 'opacity 0.5s ease';
+    cardEl.style.opacity    = '1';
+
+    setTimeout(() => {
+      cardEl.style.opacity = '0';
+      setTimeout(nextCard, 520);
+    }, Math.max(100, card.dur - 520));
+  }
+
+  nextCard();
+}
+
 function showMsg(type) {
   if (isMouseMode() && document.pointerLockElement) document.exitPointerLock();
   const el = document.getElementById('msgscreen');
@@ -766,9 +1065,12 @@ function showMsg(type) {
   el.querySelector('.msg-sub').textContent   = type === 'dead'
     ? dm.sub
     : `${state.levelType} COMPLETE · LEVEL ${state.level}`;
-  el.querySelector('.msg-info').textContent  = state.flashCount === Infinity
-    ? `LEVEL ${state.level}`
-    : `BATTERIES LEFT: ${state.flashCount}  ·  LEVEL ${state.level}`;
+  el.querySelector('.msg-info').textContent  =
+    `BRIGHTNESS: ${Math.round(state.flashBrightness * 100)}%  ·  LEVEL ${state.level}`;
+  if (type === 'win' && state.level === 10) {
+    el.querySelector('.msg-sub').textContent  = 'THE CYCLE IS COMPLETE';
+    el.querySelector('.msg-info').textContent = '∞ ENDLESS MODE UNLOCKED';
+  }
   el.classList.add('show');
   document.getElementById('retry-btn').textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
   const shareBtn = document.getElementById('share-btn');
@@ -809,12 +1111,38 @@ function showLevelIntro() {
   typeEl.classList.add('li-slam');
   flavorEl.classList.remove('li-flavor-in'); void flavorEl.offsetHeight;
   flavorEl.classList.add('li-flavor-in');
+
+  // New enemy arrival — shown only the first time each threshold is crossed
+  const NEW_ENEMY_MSGS = { 3: '[ THE MIMIC HAS FOUND YOU ]', 5: '[ THE BLIND ONE WAKES ]', 7: '[ THEY ARE ALL HERE NOW ]' };
+  const neEl = el.querySelector('.li-new-enemy');
+  let extraMs = 0;
+  if (neEl) {
+    let seen = {};
+    try { seen = JSON.parse(localStorage.getItem('flashstep-intros') || '{}'); } catch(e) {}
+    const msg = (!seen[state.level] && NEW_ENEMY_MSGS[state.level]) || null;
+    if (msg) {
+      seen[state.level] = true;
+      try { localStorage.setItem('flashstep-intros', JSON.stringify(seen)); } catch(e) {}
+      neEl.textContent = msg;
+      neEl.style.opacity = '0';
+      neEl.style.display = 'block';
+      setTimeout(() => {
+        neEl.style.transition = 'opacity 0.5s ease';
+        neEl.style.opacity    = '1';
+      }, 500);
+      extraMs = 1200;
+    } else {
+      neEl.textContent = '';
+      neEl.style.display = 'none';
+    }
+  }
+
   clearTimeout(el._ft);
   el._ft = setTimeout(() => {
     el.style.transition = 'opacity 0.8s ease';
     el.style.opacity    = '0';
     setTimeout(() => { el.style.display = 'none'; }, 820);
-  }, 1900);
+  }, 1900 + extraMs);
 }
 
 // ── Control scheme ────────────────────────────────────────────────────────────
@@ -849,6 +1177,7 @@ function pauseGame() {
   document.body.classList.add('paused');
   document.getElementById('pause-screen').classList.add('active');
   showPausePanel('pause-main');
+  document.getElementById('howto-btn').style.display = 'flex';
   suspendAudio();
 }
 
@@ -856,6 +1185,8 @@ function resumeGame() {
   state.paused = false;
   document.body.classList.remove('paused');
   document.getElementById('pause-screen').classList.remove('active');
+  document.getElementById('howto-btn').style.display  = 'none';
+  document.getElementById('howto-overlay').style.display = 'none';
   resumeAudio();
 }
 
@@ -886,6 +1217,14 @@ loadSprites({
   blind:         'sprites/blind.png',
   footprint:     'sprites/footprint.png',
   spider:        'sprites/spider.png',
+}).then(() => {
+  const { loaded, failed } = getSpriteReport();
+  console.log('[Sprites] Loaded:', loaded.join(', ') || 'none');
+  if (failed.length) {
+    console.warn('[Sprites] Procedural fallback for:', failed.join(', '));
+    const crit = ['stalker', 'mimic', 'blind'].filter(k => failed.includes(k));
+    if (crit.length) console.warn('[Sprites] WARNING — critical enemy sprites missing:', crit.join(', '));
+  }
 }).catch(() => {});
 
 // ── Controls ──────────────────────────────────────────────────────────────────
@@ -894,9 +1233,7 @@ function startFlash() {
   if (state.gameState !== 'playing') return;
   if (state.levelType === 'LIGHTS ON') return; // flash disabled
   if (state.cursedFlash) return;
-  if (state.flashCount <= 0) { playEmpty(); return; }
   if (!state.flashHeld) {
-    state.flashCount--;
     if (state.level >= 4) state.flashesUsedThisLevel++;
     if (state.cursedBurnCount > 0) state.cursedBurnCount--;
     if (Math.random() < 1 / 40) {
@@ -999,6 +1336,31 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('pointerlockerror', () => {});  // silence errors
 
+function getBrightSpeedMult() {
+  if (!state.flashHeld || state.flashAlpha < 0.05) return 1.0;
+  const b = state.flashBrightness;
+  return b > 0.7 ? 1.6 : b > 0.4 ? 1.3 : 1.0;
+}
+
+function showHint(text, ms) {
+  state.hintText  = text;
+  state.hintTimer = ms;
+}
+
+function startLevelAmbient() {
+  if (state.levelType === 'REFLECTION') startReflectionAmbient(); else startAmbient();
+}
+function stopLevelAmbient() { stopAmbient(); stopReflectionAmbient(); }
+
+function hallucinSafeCheck() {
+  if (state.paused || state.gameState !== 'playing') return false;
+  if (state.levelTimer < 60000) return false; // no hallucinations in first 60 s
+  if (!state.E.active) return true;
+  const dx = state.P.x - state.E.x, dy = state.P.y - state.E.y;
+  return dx * dx + dy * dy >= 9; // >= 3 units from stalker
+}
+function hallucinTriggerVignette() { state.hallucinVignette = 1.0; }
+
 function startGame(scheme) {
   settings.controlScheme = scheme;
   saveSettings();
@@ -1006,7 +1368,8 @@ function startGame(scheme) {
   document.getElementById('menu').classList.add('hidden');
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
   applyControlScheme();
-  startAmbient(); startExitHum();
+  startLevelAmbient(); startExitHum();
+  startHallucinations(hallucinSafeCheck, hallucinTriggerVignette);
   state.frameId = requestAnimationFrame(loop);
 }
 
@@ -1017,7 +1380,8 @@ document.getElementById('retry-btn').addEventListener('click', () => {
   document.getElementById('msgscreen').classList.remove('show');
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
   applyControlScheme();
-  startAmbient(); startExitHum();
+  startLevelAmbient(); startExitHum();
+  startHallucinations(hallucinSafeCheck, hallucinTriggerVignette);
 });
 
 // ── Pause panel buttons ────────────────────────────────────────────────────────
@@ -1038,14 +1402,20 @@ document.getElementById('pause-notes-back').addEventListener('click', () => show
 document.getElementById('pause-options-btn').addEventListener('click', () => {
   document.getElementById('p-opt-volume').value = settings.masterVolume;
   document.getElementById('p-opt-flash').value  = settings.flashFade;
+  document.getElementById('p-opt-sens').value   = settings.mouseSens;
   syncPauseShake();
   showPausePanel('pause-opts');
 });
 
 document.getElementById('pause-opts-back').addEventListener('click', () => showPausePanel('pause-main'));
 
+document.getElementById('howto-btn').addEventListener('click', () => {
+  document.getElementById('howto-overlay').style.display = 'flex';
+});
+
 document.getElementById('pause-quit').addEventListener('click', () => {
-  stopAmbient(); stopExitHum();
+  stopLevelAmbient(); stopExitHum(); stopHallucinations();
+  document.getElementById('howto-overlay').style.display = 'none';
   resumeGame();                      // clears paused state + unsuspends audio
   state.gameState = 'menu';
   state.level     = 1;
@@ -1067,6 +1437,10 @@ document.getElementById('p-opt-flash').addEventListener('input', e => {
 document.getElementById('p-opt-shake').addEventListener('click', () => {
   settings.screenshake = !settings.screenshake;
   syncPauseShake();
+  saveSettings();
+});
+document.getElementById('p-opt-sens').addEventListener('input', e => {
+  settings.mouseSens = parseFloat(e.target.value);
   saveSettings();
 });
 

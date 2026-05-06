@@ -101,7 +101,7 @@ export function checkEnd() {
   return null;
 }
 
-export function isWall(x, y, m = 0.3) {
+export function isWall(x, y, m = 0.38) {
   const { MAP, COLS, ROWS } = state;
   for (const [cx, cy] of [[x - m, y - m], [x + m, y - m], [x - m, y + m], [x + m, y + m]]) {
     const c = cx | 0, r = cy | 0;
