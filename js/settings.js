@@ -3,7 +3,7 @@ export const settings = {
   flashFade:     1.0,   // multiplier: 0.4 = slow fade, 2.0 = fast fade
   screenshake:   true,
   controlScheme: 'auto', // 'auto' | 'mouse' | 'touch'
-  mouseSens:     0.0015,
+  mouseSens:     0.001,
 };
 
 // Auto-load on first import — no explicit init call needed

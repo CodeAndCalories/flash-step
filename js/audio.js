@@ -93,11 +93,6 @@ export function playPickup() {
   tone(1320, 'sine', 0.13, 0.08, 0.100);
 }
 
-export function playEmpty() {
-  tone(95, 'square', 0.07, 0.06);
-  tone(70, 'square', 0.09, 0.05, 0.055);
-}
-
 export function playScreech() {
   try {
     const a = getAudio();
@@ -734,5 +729,71 @@ export function playMimicPulse(intensity) {
     g.gain.linearRampToValueAtTime(0.038 * intensity, t + 0.025);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
     o.start(t); o.stop(t + 0.58);
+  } catch(e) {}
+}
+
+// ── Maze Master intercom ────────────────────────────────────────────────────────
+// Static burst → low band-passed tremolo tone, panned slightly left (wall speaker).
+export function playIntercom() {
+  try {
+    const a = getAudio(), t = a.currentTime;
+    const panner = a.createStereoPanner(); panner.pan.value = -0.2;
+    panner.connect(getMasterGain());
+
+    // Static burst — 80 ms of white noise, gain 0.3
+    const len = Math.floor(a.sampleRate * 0.08);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 0.35);
+    const noise = a.createBufferSource(); noise.buffer = buf;
+    const ng = a.createGain(); ng.gain.value = 0.3;
+    noise.connect(ng); ng.connect(panner);
+    noise.start(t);
+
+    // Low band-passed tone — 180 Hz, gain 0.08, 1.2 s, 4 Hz tremolo, 400 ms fade-out
+    const t0  = t + 0.06;
+    const osc = a.createOscillator(); osc.type = 'sine'; osc.frequency.value = 180;
+    const bp  = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 180; bp.Q.value = 4;
+    const tg  = a.createGain();
+    tg.gain.setValueAtTime(0, t0);
+    tg.gain.linearRampToValueAtTime(0.08, t0 + 0.05);
+    tg.gain.setValueAtTime(0.08, t0 + 1.2);
+    tg.gain.linearRampToValueAtTime(0, t0 + 1.6);   // fade out over 400 ms
+    // Tremolo at 4 Hz, summed into the tone's gain param
+    const trem  = a.createOscillator(); trem.type = 'sine'; trem.frequency.value = 4;
+    const tremG = a.createGain(); tremG.gain.value = 0.03;
+    trem.connect(tremG); tremG.connect(tg.gain);
+    osc.connect(bp); bp.connect(tg); tg.connect(panner);
+    osc.start(t0);  osc.stop(t0 + 1.65);
+    trem.start(t0); trem.stop(t0 + 1.65);
+  } catch(e) {}
+}
+
+// ── THE VOID — wall proximity sonar ─────────────────────────────────────────────
+// Soft echo off an unseen surface. gain & pan supplied by the caller (proximity).
+export function playWallProximity(gain, pan) {
+  try {
+    const a = getAudio(), t = a.currentTime;
+    const panner = a.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan || 0));
+    panner.connect(getMasterGain());
+
+    // 60 ms white-noise burst, level scaled by proximity
+    const len = Math.floor(a.sampleRate * 0.06);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.2);
+    const src = a.createBufferSource(); src.buffer = buf;
+
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 800; bp.Q.value = 3.0;
+    const g  = a.createGain(); g.gain.value = Math.max(0, gain || 0);
+
+    // Soft echo tail — 80 ms delay with 0.3 feedback, feels like a reflection
+    const delay = a.createDelay(0.25); delay.delayTime.value = 0.08;
+    const fb    = a.createGain(); fb.gain.value = 0.3;
+
+    src.connect(bp); bp.connect(g); g.connect(panner);
+    g.connect(delay); delay.connect(fb); fb.connect(delay); fb.connect(panner);
+    src.start(t);
   } catch(e) {}
 }
