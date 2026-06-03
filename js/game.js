@@ -1,25 +1,60 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
-import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playEmpty, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash, startHallucinations, stopHallucinations, startEndingHeartbeat, stopEndingHeartbeat, startReflectionAmbient, stopReflectionAmbient, playReflectionEcho, playStalkerDrag, playMimicWhisper } from './audio.js';
+import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash, startHallucinations, stopHallucinations, startEndingHeartbeat, stopEndingHeartbeat, startReflectionAmbient, stopReflectionAmbient, playReflectionEcho, playStalkerDrag, playMimicWhisper, playIntercom, playWallProximity } from './audio.js';
 import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
 import { draw, loadSprites, getSpriteReport } from './renderer.js';
 import { stepEnemy, stepMimic, stepBlindOne, stepEntity, checkEnd, isWall } from './enemy.js';
 
+// Two voices alternate by level parity: odd = SURVIVOR, even = MAZE MASTER.
 const NOTE_TEXTS = [
-  "I dropped my torch. I can still hear it rolling.",
-  "Something moved when the flash went off. I told myself it was my shadow.",
-  "It's learning. It waited exactly where I stopped last time.",
-  "I found someone else's footprints. They stopped in the middle of the corridor.",
-  "It doesn't have eyes. I don't know how it finds me.",
-  "I've started seeing myself in the walls. I don't think that's me anymore.",
-  "There are two of them now. One follows my steps. One follows my mistakes.",
-  "The flash is changing. Sometimes it comes out wrong. Red.",
-  "I found the exit once. It wasn't where it should have been.",
-  "I think I've been here before. I think I am the thing they're running from.",
+  // Level 1 — Survivor
+  "Day one. I dropped my light near the entrance. I can hear something moving in the walls. I thought it was rats.",
+  // Level 2 — Maze Master
+  "Subject 31. Female. Adaptation rate above average. Survived the first corridor without illuminating once. Noted.",
+  // Level 3 — Survivor
+  "It follows the flash. I figured it out too late. Every time I turn the camera on it gets closer. It doesn't move in the dark. It waits.",
+  // Level 4 — Maze Master
+  "Introduced the second specimen today. Subject 31's reaction was textbook. Panic, then recalibration. She lasted four more levels. A record at the time.",
+  // Level 5 — Survivor
+  "I've seen the green door twice. Both times it moved before I reached it. I don't think the exit wants to be found.",
+  // Level 6 — Maze Master
+  "The reflection variable continues to produce reliable results. Subjects consistently follow the ghost image. The instinct toward a familiar shape overrides threat recognition entirely.",
+  // Level 7 — Survivor
+  "If anyone finds this — my name is Daniel. I have a daughter. Her name is Mara. If you get out, tell her I looked for the exit every single day.",
+  // Level 8 — Maze Master
+  "Still alive. Level nine. I have not had a subject reach level nine in fourteen attempts. I am adjusting the variables. Do not mistake my patience for admiration.",
+  // Level 9 — Survivor
+  "I found batteries someone left. Stacked. Deliberately. Someone was here before me and they PREPARED for someone else. That means he KNEW someone else would come.",
+  // Level 10 — Maze Master
+  "Removed the flash variable for one level. Without the core mechanic the subject did not freeze — they adapted. Ran the corridors from memory. I found that more unsettling than I expected.",
+  // Level 11 — Survivor
+  "I've stopped being afraid of the things in the dark. I'm afraid of whoever put them there. The creatures just do what they were made to do. He made them. He's watching.",
+  // Level 12 — Maze Master
+  "You are different from the others. I don't say that as encouragement. The others slowed down around level six. You have not slowed down. I am not sure what to do with that yet.",
+  // Level 13 — Survivor
+  "writing this in the dark cant see the paper. found the chair. the screens. he was just here. the screens were still warm. HE IS ALWAYS WATCHING.",
+  // Level 14 — Maze Master
+  "I have extended your maze three times. Introduced every specimen I have. Removed the light. Still you find the door. What happens next is not cruelty. It is methodology.",
+  // Level 15 — Survivor
+  "He leaves notes too. I found one. It was about me. It had my real name on it. Not subject anything. My name. I don't know how he knows my name.",
+  // Level 16 — Maze Master
+  "I'm done being patient. I designed this to be survivable. I designed it to test limits, not to be beaten. Tomorrow I introduce the final configuration.",
+  // Level 17 — Survivor
+  "I found the exit door today and stood in front of it for a long time. I didn't go through. I don't know why. I think I'm scared of what's on the other side.",
+  // Level 18 — Maze Master
+  "Something is wrong. You should not have been able to reach this level. Something in the design has failed. Or something in you hasn't. I genuinely cannot tell which.",
+  // Level 19 — Survivor
+  "Last note. Going for the exit. If you're reading this — run. Don't use the flash if you can help it. And if you hear his voice on the intercom — don't answer. He wants you to stop moving. Keep moving.",
+  // Level 20 — Maze Master
+  "I'm sorry. That's not something this process requires. But you were never supposed to see all of it. The exit is open. I won't close it again. I don't think I could if I tried.",
 ];
+// Cycles back to index 0 after level 20; parity (and thus voice) is preserved.
 function getNoteText(lvl) {
-  const idx = (lvl - 1) % NOTE_TEXTS.length;
-  return lvl > NOTE_TEXTS.length ? `[Page ${lvl}]\n${NOTE_TEXTS[idx]}` : NOTE_TEXTS[idx];
+  return NOTE_TEXTS[(lvl - 1) % NOTE_TEXTS.length];
+}
+// Odd levels are SURVIVOR notes, even levels are MAZE MASTER logs.
+function noteType(lvl) {
+  return lvl % 2 === 1 ? 'survivor' : 'master';
 }
 
 // ── Level type cycle ──────────────────────────────────────────────────────────
@@ -33,6 +68,7 @@ const TYPE_SUBS   = {
   GAUNTLET:     'ALL ENEMIES',
   'LIGHTS ON':  'FULLY ILLUMINATED · PURE CHASE',
   REFLECTION:   'MIMIC ONLY · MIRROR MAZE',
+  VOID:         'NO WALLS · NAVIGATE BLIND',
 };
 const FLAVOR_TEXT = {
   HUNT:         "It knows you're here.",
@@ -41,6 +77,7 @@ const FLAVOR_TEXT = {
   GAUNTLET:     "They're all here.",
   'LIGHTS ON':  "Nowhere to hide.",
   REFLECTION:   "Which one is moving?",
+  VOID:         "He took the walls.",
 };
 const DEATH_MSGS = {
   stalker:       { title: 'FOUND',      sub: 'It never stopped moving.' },
@@ -49,12 +86,18 @@ const DEATH_MSGS = {
   cursed:        { title: 'BETRAYED',   sub: 'The camera chose its side.' },
   extra_stalker: { title: 'SURROUNDED', sub: 'There were too many.' },
   reflection:    { title: 'MIRRORED',   sub: 'You followed yourself in.' },
+  void:          { title: 'LOST',       sub: 'The maze was always there.' },
 };
-const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0, 'LIGHTS ON': 0, REFLECTION: 2 };
+const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0, 'LIGHTS ON': 0, REFLECTION: 2, VOID: -4 };
+
+// Second intro-card flavor line, faded in late — only for types that have one.
+const FLAVOR2_TEXT = { GAUNTLET: "They don't all wake at once.", VOID: "Your footprints are all you have." };
 
 function getLevelInfo(level) {
   // REFLECTION: every 7th level (7, 14, 21, 28, …) — takes priority over other overrides
   if (level >= 7 && level % 7 === 0) return { type: 'REFLECTION', cycle: Math.floor(level / 7) };
+  // THE VOID: level 10 and every 9th after (10, 19, 28, …). Priority REFLECTION > VOID > LIGHTS ON.
+  if (level >= 10 && (level - 10) % 9 === 0) return { type: 'VOID', cycle: 0 };
   // Every 5th level from level 11 onwards is LIGHTS ON (fully lit, pure chase)
   if (level >= 11 && (level - 11) % 5 === 0) return { type: 'LIGHTS ON', cycle: 0 };
   if (level <= 2) return { type: 'HUNT', cycle: 0 };
@@ -66,6 +109,7 @@ function getLevelInfo(level) {
 const MOVE_SPD   = 2.2;
 const TURN_SPD   = 2.0;
 let   mouseDeltaX = 0;
+let   smoothedMouseDelta = 0;
 
 function resize() {
   state.W = state.canvas.width  = window.innerWidth;
@@ -76,7 +120,7 @@ function initGame() {
   resize();
   const { type, cycle }  = getLevelInfo(state.level);
   state.levelType         = type;
-  const useStalker        = type === 'HUNT' || type === 'GAUNTLET' || type === 'LIGHTS ON';
+  const useStalker        = type === 'HUNT' || type === 'GAUNTLET' || type === 'LIGHTS ON' || type === 'VOID';
   const useBlind          = type === 'SILENCE' || type === 'GAUNTLET';
   const useReflection     = type === 'REFLECTION';
   const cycleBonus        = Math.max(0, cycle - 1) * 2;
@@ -124,7 +168,9 @@ function initGame() {
   // Speed: 5 % per level after 3, plus 8 % per completed cycle
   const lvlMult     = state.level > 3 ? Math.pow(0.95, state.level - 3) : 1.0;
   const cycleMult   = cycle > 0 ? Math.pow(0.92, Math.max(0, cycle - 1)) : 1.0;
-  state.ENEMY_MS    = Math.max(150, Math.round((1100 - state.level * 80) * lvlMult * cycleMult));
+  let   enemyBaseMS = (1100 - state.level * 80) * lvlMult * cycleMult;
+  if (type === 'GAUNTLET') enemyBaseMS /= 0.85; // 15% slower — three enemies is plenty of pressure
+  state.ENEMY_MS    = Math.max(150, Math.round(enemyBaseMS));
   state.baseEnemyMS = state.ENEMY_MS;
   if (type === 'LIGHTS ON') {
     state.ENEMY_MS    = Math.max(150, Math.round(state.baseEnemyMS / 2)); // 2× speed
@@ -187,7 +233,6 @@ function initGame() {
   state.heartbeatTimer = 0; state.shakeX = 0; state.shakeY = 0; state.shakeAmt = 0;
   state.firstFlashDone  = false; state.minimapTimer = 0; state.jumpScareTimer = 0;
   state.crumbs          = [];
-  state.flashDrainCount = 0;
   state.panicLevel      = 0; state.panicDecayTimer = 0;
   state.playerHistory   = []; state.historyTimer = 0;
   state.M = useReflection
@@ -202,12 +247,27 @@ function initGame() {
   state.lastPlayerCell  = { c: 1, r: 1 }; state.webEffect = null;
   state.stamina         = 1.0;  state.sprinting = false;
   state.levelTimer        = 0;
+  state.graceTimer        = type === 'GAUNTLET' ? 8000 : 0; // GAUNTLET only: enemies frozen for the first 8 s
+  state.blindOneAwake     = type !== 'GAUNTLET'; // GAUNTLET staggers the Blind One to 35 s
+  state.blackoutActive    = false;
+  state.blackoutTimer     = 0;
+  state.blackoutCooldown  = 0;
+  // Intercom — per-level flags + transient display reset (run-scoped flags live in startGame)
+  state.im90Fired           = false;
+  state.imExitFired         = false;
+  state.imVoidFired         = false;
+  state.imStillTimer        = 0;
+  state.imStillCooldown     = 0;
+  state.imExitHesitateTimer = 0;
+  state.intercomMsg         = null;
+  state.intercomQueue       = [];
+  state.wallProximityTimer  = 0;   // VOID: fire the first sonar check promptly
   state.hallucinVignette  = 0;
   state.replayBuffer      = [];
   state.replayRecordTimer = 0;
   state.deathReplay       = null;
   state.cursedFlash     = false; state.cursedTimer = 0; state.cursedBurnCount = 0;
-  state.cursedDrainAccum = 0;   state.cursedEnemyTimer = 0;
+  state.cursedEnemyTimer = 0;
   state.spawnWarning         = null;
   state.flashTooltipTimer    = state.level === 1 ? 6000 : 0;
   state.limitedWarningTimer  = state.level === 4 ? 3000 : 0;
@@ -244,7 +304,61 @@ function loop(ts) {
   if (state.gameState !== 'playing') { state.frameId = requestAnimationFrame(loop); return; }
 
   state.levelTimer += dt;
+  if (state.graceTimer > 0) state.graceTimer -= dt;
+  const enemiesFrozen = state.graceTimer > 0; // start-of-level grace: nothing hunts yet
+  // GAUNTLET wakes the Blind One late so all three threats don't converge at once
+  if (state.levelType === 'GAUNTLET' && !state.blindOneAwake && state.levelTimer >= 35000)
+    state.blindOneAwake = true;
   if (state.hintTimer > 0) state.hintTimer -= dt;
+
+  // ── Maze Master intercom triggers (atmosphere only — never blocks play) ───────
+  if (!state.imLevel5Fired && state.level === 5) {
+    state.imLevel5Fired = true; fireIntercom('STILL WATCHING.');
+  }
+  if (!state.imGauntletFired && state.levelType === 'GAUNTLET') {
+    state.imGauntletFired = true; fireIntercom("LET'S ADJUST THE VARIABLES.");
+  }
+  if (!state.imVoidFired && state.levelType === 'VOID') {
+    state.imVoidFired = true; fireIntercom('I TOOK SOMETHING FROM YOU.');
+  }
+  if (!state.im90Fired && state.levelTimer >= 90000) {
+    state.im90Fired = true; fireIntercom('IMPRESSIVE.');
+  }
+  if (state.imStillCooldown > 0) state.imStillCooldown -= dt;
+  if (!state.isMoving) {
+    state.imStillTimer += dt;
+    if (state.imStillTimer >= 8000 && state.imStillCooldown <= 0) {
+      fireIntercom('WHY DID YOU STOP?');
+      state.imStillCooldown = 10000; state.imStillTimer = 0;
+    }
+  } else state.imStillTimer = 0;
+  if (!state.imExitFired) {
+    const exDx = (state.COLS - 1.5) - state.P.x, exDy = (state.ROWS - 1.5) - state.P.y;
+    if (Math.sqrt(exDx * exDx + exDy * exDy) < 2.2) {
+      state.imExitHesitateTimer += dt;
+      if (state.imExitHesitateTimer >= 4000) { state.imExitFired = true; fireIntercom('GO ON THEN.'); }
+    } else state.imExitHesitateTimer = 0;
+  }
+  updateIntercom(dt);
+
+  // ── THE VOID — wall-proximity sonar (every 200 ms; walls are invisible here) ───
+  if (state.levelType === 'VOID') {
+    state.wallProximityTimer -= dt;
+    if (state.wallProximityTimer <= 0) {
+      state.wallProximityTimer = 200;
+      const dF = voidWallDist(state.P.angle);
+      const dL = voidWallDist(state.P.angle - 0.6);
+      const dR = voidWallDist(state.P.angle + 0.6);
+      const minD = Math.min(dF, dL, dR);
+      if (minD < 3.0) {
+        const g = (3.0 - minD) / 3.0 * 0.5;
+        let pan = 0.0;                              // forward shortest → centre
+        if (dR < dF && dR < dL)      pan = 0.4;     // right shortest → pan right
+        else if (dL < dF && dL < dR) pan = -0.4;    // left shortest  → pan left
+        playWallProximity(g, pan);
+      }
+    }
+  }
 
   // Level 1 hints — show once, never again
   if (state.level === 1 && !state.paused) {
@@ -325,7 +439,6 @@ function loop(ts) {
     state.stamina = Math.max(0, state.stamina - dt * 2 / 4000);
     // Cursed flash forces maximum brightness
     state.flashBrightness = 1.0;
-    state.cursedDrainAccum = 0; // drain removed — flash is unlimited
     if (state.cursedTimer <= 0) {
       state.cursedFlash     = false;
       state.flashHeld       = false;
@@ -341,10 +454,19 @@ function loop(ts) {
     state.ENEMY_MS = state.cursedEnemyTimer > 0 ? 150 : state.baseEnemyMS;
   }
 
-  // LIGHTS ON: override flash state — scene always fully lit, flash system off
+  // LIGHTS ON: scene normally fully lit; flash is repurposed as a timed blackout
   if (state.levelType === 'LIGHTS ON') {
-    state.flashAlpha = 1.0;
-    state.flashDecay = 1.0;
+    if (state.blackoutCooldown > 0) state.blackoutCooldown -= dt;
+    if (state.blackoutActive) {
+      state.blackoutTimer -= dt;
+      if (state.blackoutTimer <= 0) {
+        state.blackoutActive   = false;
+        state.blackoutCooldown = 20000; // 20 s cooldown starts when the lights snap back
+      }
+    }
+    // During blackout the lights cut completely; the stalker keeps moving (see gate below)
+    state.flashAlpha = state.blackoutActive ? 0 : 1.0;
+    state.flashDecay = state.blackoutActive ? 0 : 1.0;
     state.flashHeld  = false;
     state.panicLevel = 0;
   }
@@ -364,7 +486,11 @@ function loop(ts) {
             - (keys['s'] || keys['arrowdown'] || dpad.back ? 1 : 0);
 
   if (mouse) {
-    P.angle    += mouseDeltaX * settings.mouseSens;
+    // Cap raw delta so a single huge frame (flick / hitch) can't snap the view ~180°
+    const rawDelta = Math.max(-40, Math.min(40, mouseDeltaX));
+    // Lerp toward the (capped) raw delta for smooth, low-jitter turning
+    smoothedMouseDelta += (rawDelta - smoothedMouseDelta) * 0.18;
+    P.angle    += smoothedMouseDelta * settings.mouseSens;
     mouseDeltaX = 0;
     state.lookDelta = 0;
   } else {
@@ -425,11 +551,18 @@ function loop(ts) {
     }
     const last = state.crumbs[state.crumbs.length - 1];
     if (!last || (P.x - last.x) ** 2 + (P.y - last.y) ** 2 > 0.12) {
-      if (state.crumbs.length >= 250) state.crumbs.shift();
-      state.crumbs.push({ x: P.x, y: P.y, angle: P.angle });
+      // VOID keeps a tight, recent breadcrumb trail (60); other levels keep 250.
+      const maxCrumbs = state.levelType === 'VOID' ? 60 : 250;
+      while (state.crumbs.length >= maxCrumbs) state.crumbs.shift();
+      state.crumbs.push({ x: P.x, y: P.y, angle: P.angle, t: state.levelTimer });
     }
   } else {
     state.footstepTimer = 0;
+  }
+  // VOID: footprints expire after 25 s (time-based, runs every frame even when still)
+  if (state.levelType === 'VOID') {
+    const cutoff = state.levelTimer - 25000;
+    while (state.crumbs.length && (state.crumbs[0].t ?? 0) < cutoff) state.crumbs.shift();
   }
 
   // Battery collection
@@ -450,17 +583,25 @@ function loop(ts) {
       state.noteCollected = true;
       if (!state.collectedNotes.includes(state.level)) state.collectedNotes.push(state.level);
       playPaperRustle();
-      state.noteDisplay = { text: getNoteText(state.level), chars: 0, timer: 4000, alpha: 1 };
+      const text = getNoteText(state.level);
+      const type = noteType(state.level);
+      // Master logs type slightly faster than survivor notes; cap so even the
+      // longest entries finish typing within a sane window (notes here are long).
+      const baseMs = type === 'master' ? 38 : 55;
+      const charMs = Math.min(baseMs, 6500 / Math.max(1, text.length));
+      state.noteDisplay = { text, type, charMs, chars: 0, elapsed: 0, alpha: 0, _shown: false };
     }
   }
   if (state.noteDisplay) {
-    state.noteDisplay.timer -= dt;
-    if (state.noteDisplay.timer <= 0) { state.noteDisplay = null; }
-    else {
-      const elapsed = 4000 - state.noteDisplay.timer;
-      state.noteDisplay.chars = Math.min(state.noteDisplay.text.length, Math.floor(elapsed / 55));
-      state.noteDisplay.alpha = state.noteDisplay.timer < 800 ? state.noteDisplay.timer / 800 : 1;
-    }
+    const nd = state.noteDisplay;
+    nd.elapsed += dt;
+    nd.chars = Math.min(nd.text.length, Math.floor(nd.elapsed / nd.charMs));
+    const fadeIn = 280, hold = 2800, fadeOut = 800;
+    const total = nd.text.length * nd.charMs + fadeIn + hold + fadeOut;
+    if (nd.elapsed < fadeIn)               nd.alpha = nd.elapsed / fadeIn;
+    else if (nd.elapsed > total - fadeOut) nd.alpha = Math.max(0, (total - nd.elapsed) / fadeOut);
+    else                                   nd.alpha = 1;
+    if (nd.elapsed >= total) state.noteDisplay = null;
   }
 
   // UI timers
@@ -508,8 +649,8 @@ function loop(ts) {
   }
   if (state.webEffect) { state.webEffect.timer -= dt; if (state.webEffect.timer <= 0) state.webEffect = null; }
 
-  // Blind One — tracks footstep sound, not player position
-  if (state.level >= 5 && state.B.active) {
+  // Blind One — tracks footstep sound, not player position (dormant until awake)
+  if (state.level >= 5 && state.B.active && state.blindOneAwake) {
     const bdx = P.x - state.B.x, bdy = P.y - state.B.y;
     const bdist = Math.sqrt(bdx * bdx + bdy * bdy);
     const soundR = state.sprinting ? 6 : state.isMoving ? 3 : 0;
@@ -522,14 +663,18 @@ function loop(ts) {
     // Sprint reaction: if sprinting within 6 units, immediately lock on at fast speed
     if (state.sprinting && bdist < 6) state.lastHeardPos = { x: P.x, y: P.y };
     const blindMS = (state.sprinting && bdist < 6 && state.lastHeardPos) ? 340 : 780;
-    state.B.moveTimer += dt;
-    while (state.B.moveTimer >= blindMS) {
-      state.B.moveTimer -= blindMS;
-      stepBlindOne();
-      if (state.lastHeardPos) {
-        const gc = state.B.x | 0, gr = state.B.y | 0;
-        if (gc === (state.lastHeardPos.x | 0) && gr === (state.lastHeardPos.y | 0))
-          state.lastHeardPos = null;
+    if (enemiesFrozen) {
+      state.B.moveTimer = 0;
+    } else {
+      state.B.moveTimer += dt;
+      while (state.B.moveTimer >= blindMS) {
+        state.B.moveTimer -= blindMS;
+        stepBlindOne();
+        if (state.lastHeardPos) {
+          const gc = state.B.x | 0, gr = state.B.y | 0;
+          if (gc === (state.lastHeardPos.x | 0) && gr === (state.lastHeardPos.y | 0))
+            state.lastHeardPos = null;
+        }
       }
     }
     // Echolocation click sound
@@ -554,9 +699,13 @@ function loop(ts) {
         showHint('IT MOVES WHEN YOU LOOK', 3000); state.level1Hints.enemy = true;
       }
     }
-    state.E.moveTimer += dt;
-    const stalkerEffMS = Math.max(150, state.ENEMY_MS / getBrightSpeedMult());
-    while (state.E.moveTimer >= stalkerEffMS) { state.E.moveTimer -= stalkerEffMS; stepEnemy(); playStalkerDrag(); }
+    if (enemiesFrozen) {
+      state.E.moveTimer = 0;
+    } else {
+      state.E.moveTimer += dt;
+      const stalkerEffMS = Math.max(150, state.ENEMY_MS / getBrightSpeedMult());
+      while (state.E.moveTimer >= stalkerEffMS) { state.E.moveTimer -= stalkerEffMS; stepEnemy(); playStalkerDrag(); }
+    }
   }
   if (state.minimapTimer > 0) state.minimapTimer -= dt / 1000;
 
@@ -584,6 +733,7 @@ function loop(ts) {
       }
     }
     for (const es of state.extraStalkers) {
+      if (enemiesFrozen) { es.moveTimer = 0; continue; }
       es.moveTimer += dt;
       const esMS = Math.max(150, Math.round(state.ENEMY_MS / es.speedMult));
       while (es.moveTimer >= esMS) { es.moveTimer -= esMS; stepEntity(es); }
@@ -620,7 +770,7 @@ function loop(ts) {
 
   // REFLECTION: mimic mirrors player movement — steps when player moves OR flash is on
   if (state.levelType === 'REFLECTION' && state.M.active) {
-    if (state.isMoving || state.flashAlpha > 0.04) {
+    if (!enemiesFrozen && (state.isMoving || state.flashAlpha > 0.04)) {
       state.M.moveTimer += dt;
       const mimicMS = Math.max(300, state.ENEMY_MS / getBrightSpeedMult());
       while (state.M.moveTimer >= mimicMS) { state.M.moveTimer -= mimicMS; stepMimic(); }
@@ -685,6 +835,8 @@ function loop(ts) {
     state.gameState = result; state.flashHeld = false;
     if (result === 'dead' && state.cursedFlash) state.killedBy = 'cursed';
     if (result === 'dead' && state.levelType === 'REFLECTION' && state.killedBy === 'mimic') state.killedBy = 'reflection';
+    if (result === 'dead' && state.levelType === 'VOID' &&
+        (state.killedBy === 'stalker' || state.killedBy === 'extra_stalker')) state.killedBy = 'void';
     if (isMouseMode() && document.pointerLockElement) document.exitPointerLock();
     stopLevelAmbient(); stopExitHum(); stopHallucinations(); resetPanicAudio();
     if (result === 'dead') {
@@ -718,7 +870,7 @@ function loop(ts) {
   updateUI();
   const bob = state.isMoving ? Math.sin(state.bobTimer) * 0.036 : 0;
   const effBright = state.cursedFlash ? 1.0 : state.flashBrightness;
-  const rawLit = state.levelType === 'LIGHTS ON' ? 1.0
+  const rawLit = state.levelType === 'LIGHTS ON' ? (state.blackoutActive ? 0 : 1.0)
     : (state.flashAlpha > 0 ? state.flashAlpha : state.flashDecay * 0.32) * effBright;
   draw(rawLit, bob, state.outlineAlpha);
   state.frameId = requestAnimationFrame(loop);
@@ -753,14 +905,35 @@ function updateUI() {
   const locked = document.pointerLockElement === state.canvas;
   document.getElementById('mouse-prompt').style.display =
     (isMouseMode() && state.gameState === 'playing' && !state.paused && !locked) ? 'flex' : 'none';
-  // Note display typewriter
+  // Note display typewriter (two voices: survivor vs Maze Master log)
   const noteEl = document.getElementById('note-display');
   if (noteEl) {
     if (state.noteDisplay && !state.paused) {
-      noteEl.style.display = 'flex'; noteEl.style.opacity = state.noteDisplay.alpha;
-      document.getElementById('note-text').textContent =
-        state.noteDisplay.text.substring(0, state.noteDisplay.chars);
+      const nd = state.noteDisplay;
+      noteEl.style.display = 'flex';
+      noteEl.style.opacity = nd.alpha;
+      const paperEl = document.getElementById('note-paper');
+      const labelEl = document.getElementById('note-label');
+      const textEl  = document.getElementById('note-text');
+      if (!nd._shown) {
+        nd._shown = true;
+        paperEl.classList.remove('note-survivor', 'note-master', 'note-flicker');
+        paperEl.classList.add(nd.type === 'master' ? 'note-master' : 'note-survivor');
+        labelEl.textContent = nd.type === 'master' ? '— OBSERVATION LOG —' : '— FOUND NOTE —';
+        // Master logs flicker on like a monitor turning on (200 ms)
+        if (nd.type === 'master') { void paperEl.offsetHeight; paperEl.classList.add('note-flicker'); }
+      }
+      textEl.textContent = nd.text.substring(0, nd.chars);
     } else noteEl.style.display = 'none';
+  }
+  // Maze Master intercom line (bottom-left)
+  const imEl = document.getElementById('intercom-msg');
+  if (imEl) {
+    if (state.intercomMsg && state.gameState === 'playing' && !state.paused) {
+      imEl.style.display = 'block';
+      imEl.style.opacity = state.intercomMsg.alpha;
+      imEl.textContent   = state.intercomMsg.text;
+    } else imEl.style.display = 'none';
   }
   // Notes counter — "X/Y" format (collected / levels played)
   const sNotes = document.getElementById('s-notes');
@@ -772,10 +945,30 @@ function updateUI() {
   const sLightsOn = document.getElementById('s-lights-on');
   if (sLightsOn) sLightsOn.style.display =
     (state.levelType === 'LIGHTS ON' && state.gameState === 'playing') ? 'block' : 'none';
+  // Blackout ability indicator (LIGHTS ON only)
+  const sBlackout = document.getElementById('s-blackout');
+  if (sBlackout) {
+    if (state.levelType === 'LIGHTS ON' && state.gameState === 'playing') {
+      sBlackout.style.display = 'block';
+      if (state.blackoutActive)
+        sBlackout.textContent = `🌑 BLACKOUT ${Math.ceil(state.blackoutTimer / 1000)}s`;
+      else if (state.blackoutCooldown > 0)
+        sBlackout.textContent = `BLACKOUT RECHARGING ${Math.ceil(state.blackoutCooldown / 1000)}s`;
+      else
+        sBlackout.textContent = `⚡ FLASH = BLACKOUT`;
+      sBlackout.classList.toggle('blackout-ready', !state.blackoutActive && state.blackoutCooldown <= 0);
+    } else {
+      sBlackout.style.display = 'none';
+    }
+  }
   // SILENCE level warning (explains missing heartbeat)
   const sSilence = document.getElementById('s-silence');
   if (sSilence) sSilence.style.display =
     (state.levelType === 'SILENCE' && state.gameState === 'playing') ? 'block' : 'none';
+  // THE VOID indicator
+  const sVoid = document.getElementById('s-void');
+  if (sVoid) sVoid.style.display =
+    (state.levelType === 'VOID' && state.gameState === 'playing') ? 'block' : 'none';
   // Cursed flash warning
   const sCursed = document.getElementById('s-cursed');
   if (sCursed) sCursed.style.display = state.cursedFlash ? 'block' : 'none';
@@ -1112,6 +1305,24 @@ function showLevelIntro() {
   flavorEl.classList.remove('li-flavor-in'); void flavorEl.offsetHeight;
   flavorEl.classList.add('li-flavor-in');
 
+  // Some types get a second flavor line that fades in late (GAUNTLET, VOID)
+  const flavor2El = el.querySelector('.li-flavor2');
+  if (flavor2El) {
+    const line2 = FLAVOR2_TEXT[info.type];
+    if (line2) {
+      flavor2El.textContent   = line2;
+      flavor2El.style.display = 'block';
+      flavor2El.style.transition = 'none';
+      flavor2El.style.opacity    = '0';
+      void flavor2El.offsetHeight;
+      flavor2El.style.transition = 'opacity 0.6s ease 0.9s';
+      flavor2El.style.opacity    = '1';
+    } else {
+      flavor2El.textContent   = '';
+      flavor2El.style.display = 'none';
+    }
+  }
+
   // New enemy arrival — shown only the first time each threshold is crossed
   const NEW_ENEMY_MSGS = { 3: '[ THE MIMIC HAS FOUND YOU ]', 5: '[ THE BLIND ONE WAKES ]', 7: '[ THEY ARE ALL HERE NOW ]' };
   const neEl = el.querySelector('.li-new-enemy');
@@ -1172,6 +1383,7 @@ function pauseGame() {
   state.flashHeld = false;
   state.keys      = {};
   mouseDeltaX     = 0;
+  smoothedMouseDelta = 0;
   Object.assign(state.dpad, { fwd: false, back: false, turnL: false, turnR: false });
   if (document.pointerLockElement) document.exitPointerLock();
   document.body.classList.add('paused');
@@ -1231,7 +1443,15 @@ loadSprites({
 
 function startFlash() {
   if (state.gameState !== 'playing') return;
-  if (state.levelType === 'LIGHTS ON') return; // flash disabled
+  if (state.levelType === 'LIGHTS ON') {
+    // Flash is repurposed as a 3 s blackout — a skill-based escape on a cooldown
+    if (!state.blackoutActive && state.blackoutCooldown <= 0) {
+      state.blackoutActive = true;
+      state.blackoutTimer  = 3000;
+      playShutter();
+    }
+    return;
+  }
   if (state.cursedFlash) return;
   if (!state.flashHeld) {
     if (state.level >= 4) state.flashesUsedThisLevel++;
@@ -1240,7 +1460,6 @@ function startFlash() {
       // Cursed flash — single red frame then strobe begins
       state.cursedFlash      = true;
       state.cursedTimer      = 10000 + Math.random() * 2000;
-      state.cursedDrainAccum = 0;
       playCursedFlash();
     } else {
       playShutter();
@@ -1271,15 +1490,17 @@ document.addEventListener('keyup', e => {
 });
 
 const fb = document.getElementById('flash-btn');
-fb.addEventListener('touchstart', e => { e.preventDefault(); startFlash(); fb.classList.add('active'); },    { passive: false });
-fb.addEventListener('touchend',   e => { e.preventDefault(); stopFlash();  fb.classList.remove('active'); }, { passive: false });
+fb.addEventListener('touchstart',  e => { e.preventDefault(); startFlash(); fb.classList.add('active'); },    { passive: false });
+fb.addEventListener('touchend',    e => { e.preventDefault(); stopFlash();  fb.classList.remove('active'); }, { passive: false });
+fb.addEventListener('touchcancel', e => { e.preventDefault(); stopFlash();  fb.classList.remove('active'); }, { passive: false });
 fb.addEventListener('mousedown',  () => startFlash());
 fb.addEventListener('mouseup',    () => stopFlash());
 
 function dBtn(id, key) {
   const el = document.getElementById(id); if (!el) return;
-  el.addEventListener('touchstart', e => { e.preventDefault(); state.dpad[key] = true;  el.classList.add('pressed'); },    { passive: false });
-  el.addEventListener('touchend',   e => { e.preventDefault(); state.dpad[key] = false; el.classList.remove('pressed'); }, { passive: false });
+  el.addEventListener('touchstart',  e => { e.preventDefault(); state.dpad[key] = true;  el.classList.add('pressed'); },    { passive: false });
+  el.addEventListener('touchend',    e => { e.preventDefault(); state.dpad[key] = false; el.classList.remove('pressed'); }, { passive: false });
+  el.addEventListener('touchcancel', e => { e.preventDefault(); state.dpad[key] = false; el.classList.remove('pressed'); }, { passive: false });
   el.addEventListener('mousedown',  () => { state.dpad[key] = true;  el.classList.add('pressed'); });
   document.addEventListener('mouseup', () => { state.dpad[key] = false; el.classList.remove('pressed'); });
 }
@@ -1296,7 +1517,8 @@ dBtn('b-turnR', 'turnR');
     if (now - lastFwdTap < 300) state.dpad.sprint = true;
     lastFwdTap = now;
   }, { passive: true });
-  document.getElementById('b-fwd').addEventListener('touchend', () => { state.dpad.sprint = false; }, { passive: true });
+  document.getElementById('b-fwd').addEventListener('touchend',    () => { state.dpad.sprint = false; }, { passive: true });
+  document.getElementById('b-fwd').addEventListener('touchcancel', () => { state.dpad.sprint = false; }, { passive: true });
 }
 
 // Swipe-to-look on the canvas centre strip
@@ -1313,6 +1535,10 @@ state.canvas.addEventListener('touchmove', e => {
     }
 }, { passive: true });
 state.canvas.addEventListener('touchend', e => {
+  for (const t of e.changedTouches)
+    if (state.lookStart && t.identifier === state.lookStart.id) state.lookStart = null;
+}, { passive: true });
+state.canvas.addEventListener('touchcancel', e => {
   for (const t of e.changedTouches)
     if (state.lookStart && t.identifier === state.lookStart.id) state.lookStart = null;
 }, { passive: true });
@@ -1347,6 +1573,40 @@ function showHint(text, ms) {
   state.hintTimer = ms;
 }
 
+// THE VOID — step along a ray from the player until it hits a wall/boundary cell,
+// returning the distance (capped at 4 units). Used for the wall-proximity sonar.
+function voidWallDist(angle) {
+  const dx = Math.cos(angle), dy = Math.sin(angle);
+  for (let d = 0.1; d <= 4; d += 0.1) {
+    const cx = (state.P.x + dx * d) | 0, cy = (state.P.y + dy * d) | 0;
+    if (cx < 0 || cy < 0 || cx >= state.COLS || cy >= state.ROWS) return d;
+    if (state.MAP[cy][cx] !== 0) return d;
+  }
+  return 4;
+}
+
+// ── Maze Master intercom — queue + display state machine ────────────────────────
+function fireIntercom(text) {
+  state.intercomQueue.push(text);
+}
+function updateIntercom(dt) {
+  // Advance the line currently showing (fade in 300 / hold 3000 / fade out 800)
+  if (state.intercomMsg) {
+    const im = state.intercomMsg;
+    im.elapsed += dt;
+    const fadeIn = 300, hold = 3000, fadeOut = 800, total = fadeIn + hold + fadeOut;
+    if (im.elapsed < fadeIn)              im.alpha = im.elapsed / fadeIn;
+    else if (im.elapsed > fadeIn + hold)  im.alpha = Math.max(0, 1 - (im.elapsed - fadeIn - hold) / fadeOut);
+    else                                  im.alpha = 1;
+    if (im.elapsed >= total) state.intercomMsg = null;
+  }
+  // Never overlap: only start the next queued line once the current one finishes
+  if (!state.intercomMsg && state.intercomQueue.length) {
+    state.intercomMsg = { text: state.intercomQueue.shift(), elapsed: 0, alpha: 0 };
+    playIntercom();
+  }
+}
+
 function startLevelAmbient() {
   if (state.levelType === 'REFLECTION') startReflectionAmbient(); else startAmbient();
 }
@@ -1365,6 +1625,9 @@ function startGame(scheme) {
   settings.controlScheme = scheme;
   saveSettings();
   state.level = 1; getAudio();
+  // Run-scoped intercom lines (fire at most once per run)
+  state.imLevel5Fired   = false;
+  state.imGauntletFired = false;
   document.getElementById('menu').classList.add('hidden');
   initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
   applyControlScheme();
@@ -1391,9 +1654,15 @@ document.getElementById('pause-resume').addEventListener('click', resumeGame);
 document.getElementById('pause-notes-btn').addEventListener('click', () => {
   const list = document.getElementById('pause-notes-list');
   list.innerHTML = state.collectedNotes.length === 0
-    ? '<p class="notes-empty">No notes found yet.</p>'
+    ? '<p class="notes-empty" style="color:#666666">No notes found yet.</p>'
     : state.collectedNotes.slice().sort((a, b) => a - b)
-        .map(lvl => `<div class="note-entry"><span class="note-lvl">LEVEL ${lvl}</span><p class="note-body">${getNoteText(lvl)}</p></div>`)
+        .map(lvl => {
+          const master = noteType(lvl) === 'master';
+          const col    = master ? '#c8d8e8' : '#e8c87a';
+          const hdr    = master ? `[ OBSERVATION LOG · LEVEL ${lvl} ]` : `[ FOUND NOTE · LEVEL ${lvl} ]`;
+          const font   = master ? "font-family:'Share Tech Mono',monospace;" : '';
+          return `<div class="note-entry"><span class="note-lvl" style="color:${col}">${hdr}</span><p class="note-body" style="color:${col};${font}">${getNoteText(lvl)}</p></div>`;
+        })
         .join('');
   showPausePanel('pause-notes');
 });

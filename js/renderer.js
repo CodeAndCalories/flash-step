@@ -198,7 +198,10 @@ export function draw(lit, bob, outline) {
       const top  = (H - wh) / 2 + hs;
       wallTops[i] = top; wallWHs[i] = wh;
 
-      if (lit > 0) {
+      // THE VOID: walls are invisible — skip the slice fill, but still draw the
+      // exit (goal) so it stays a green beacon. zBuffer (zb[i]) is written above
+      // regardless, so sprite depth-testing keeps working.
+      if (lit > 0 && (state.levelType !== 'VOID' || goal)) {
         const br = Math.pow(Math.max(0, 1 - corr / effMXD), 1.08) * lit;
         let r, g, b;
         if (goal) {
@@ -297,8 +300,8 @@ export function draw(lit, bob, outline) {
     }
   }
 
-  // Spider web overlays — faint radial patterns on wall faces (flash only)
-  if (lit > 0 && state.webs) {
+  // Spider web overlays — faint radial patterns on wall faces (flash only; skipped in VOID)
+  if (lit > 0 && state.webs && state.levelType !== 'VOID') {
     for (const web of state.webs) {
       if (web.hit) continue;
       const wdx = web.x - P.x, wdy = web.y - P.y;
@@ -349,8 +352,8 @@ export function draw(lit, bob, outline) {
     }
   }
 
-  // Outline / afterglow — wall edges linger after flash released
-  if (outline > 0 && lit < 0.9) {
+  // Outline / afterglow — wall edges linger after flash released (no walls in VOID)
+  if (outline > 0 && lit < 0.9 && state.levelType !== 'VOID') {
     const oLit = outline * (1 - lit);
     for (let i = 0; i < NR; i++) {
       const ra = P.angle - HFOV + (i / NR) * FOV;
@@ -390,7 +393,9 @@ export function draw(lit, bob, outline) {
       const cph  = H * 1.65 / cdist;
       const cy   = H / 2 + cph * 0.30 + hs;
       if (cy > H) continue;
-      const alpha = Math.pow(1 - cdist / 8, 1.8) * lit * 0.20;
+      // VOID: footprints are the primary navigation aid — render them brighter
+      const fpMult = state.levelType === 'VOID' ? 0.7 : 0.20;
+      const alpha = Math.pow(1 - cdist / 8, 1.8) * lit * fpMult;
       if (alpha < 0.012) continue;
       const r = Math.max(1, H * 0.007 / cdist);
       if (footSpr) {
@@ -501,28 +506,6 @@ export function draw(lit, bob, outline) {
         // Label band — darker equatorial stripe
         ctx.fillStyle = `rgba(36,38,42,${litA * 0.92})`;
         ctx.fillRect(bsx - bw * 0.46, ty + bh * 0.40, bw * 0.92, bh * 0.20);
-
-        // Charge indicator bar (right of centre, vertical)
-        {
-          const barX = bsx + bw * 0.24, barT = ty + bh * 0.16, barH = bh * 0.62;
-          const cf   = state.flashCount === Infinity ? 1 : Math.min(1, state.flashCount / 12);
-          // Track
-          ctx.fillStyle = `rgba(12,25,12,${litA})`;
-          ctx.fillRect(barX, barT, bw * 0.11, barH);
-          // Fill (green → amber → red)
-          ctx.fillStyle = cf > 0.5 ? `rgba(45,215,65,${litA})`
-                        : cf > 0.2 ? `rgba(215,192,25,${litA})`
-                        :            `rgba(215,42,22,${litA})`;
-          ctx.fillRect(barX, barT + barH * (1 - cf), bw * 0.11, barH * cf);
-          // Soft glow on bar
-          const bgrd = ctx.createRadialGradient(barX + bw * 0.055, barT + barH * 0.5, 0,
-                                                barX + bw * 0.055, barT + barH * 0.5, bw * 0.55);
-          bgrd.addColorStop(0, cf > 0.5 ? `rgba(60,255,80,${litA * 0.36 * pulse})`
-                              :           `rgba(255,175,25,${litA * 0.36 * pulse})`);
-          bgrd.addColorStop(1, 'transparent');
-          ctx.fillStyle = bgrd;
-          ctx.fillRect(barX - bw * 0.4, barT, bw, barH);
-        }
 
         // Positive terminal — gold nub on top
         ctx.fillStyle = `rgba(208,162,32,${litA})`;
@@ -1026,8 +1009,12 @@ export function draw(lit, bob, outline) {
     for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
   }
 
-  // Proximity danger vignette — pulses red when enemy is close, even in the dark
-  const pd = Math.sqrt((P.x - E.x) ** 2 + (P.y - E.y) ** 2);
+  // Proximity danger vignette — pulses red when the nearest active enemy is close,
+  // even in the dark. Reads the stalker when active, else the mimic. The Blind One is
+  // deliberately excluded: it has no visual tells (SILENCE is meant to be audio-only).
+  let pd = Infinity;
+  if (E.active)       pd = Math.min(pd, Math.sqrt((P.x - E.x) ** 2 + (P.y - E.y) ** 2));
+  if (state.M.active) pd = Math.min(pd, Math.sqrt((P.x - state.M.x) ** 2 + (P.y - state.M.y) ** 2));
   if (pd < 5) {
     const pi = (1 - pd / 5) * 0.5 * eyePulse;
     const pv = ctx.createRadialGradient(W / 2, H / 2, H * 0.08, W / 2, H / 2, H * 0.75);
@@ -1070,7 +1057,7 @@ export function draw(lit, bob, outline) {
   }
 
   // Minimap — shown for 4 s after first flash
-  if (minimapTimer > 0 && gameState === 'playing') {
+  if (minimapTimer > 0 && gameState === 'playing' && state.levelType !== 'VOID') {
     const a   = Math.min(1, minimapTimer * 0.8) * 0.88;
     const ms  = Math.max(4, Math.min(7, Math.floor(Math.min(W, H) / (COLS * 1.6))));
     const mw  = COLS * ms, mh = ROWS * ms, mx2 = W - mw - 14, my2 = 14;
@@ -1088,7 +1075,9 @@ export function draw(lit, bob, outline) {
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++)
       if (MAP[r][c] === 2) ctx.strokeRect(mx2 + c * ms + 0.5, my2 + r * ms + 0.5, ms - 1, ms - 1);
     ctx.fillStyle = '#ffffff'; ctx.fillRect(mx2 + P.x * ms - 1.5, my2 + P.y * ms - 1.5, 3, 3);
-    ctx.fillStyle = '#ff2020'; ctx.fillRect(mx2 + E.x * ms - 1.5, my2 + E.y * ms - 1.5, 3, 3);
+    if (E.active) {
+      ctx.fillStyle = '#ff2020'; ctx.fillRect(mx2 + E.x * ms - 1.5, my2 + E.y * ms - 1.5, 3, 3);
+    }
     ctx.fillStyle = '#ffcc22';
     for (const b of state.batteries) ctx.fillRect(mx2 + b.x * ms - 1, my2 + b.y * ms - 1, 2, 2);
     if (state.level >= 3 && state.M.active) {

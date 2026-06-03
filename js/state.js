@@ -46,7 +46,6 @@ export const state = {
   crumbs: [],
   jumpScareTimer: 0,
   paused: false,
-  flashDrainCount: 0,
   panicLevel: 0,
   panicDecayTimer: 0,
   baseEnemyMS: 900,
@@ -83,7 +82,6 @@ export const state = {
   cursedFlash:      false,
   cursedTimer:      0,
   cursedBurnCount:  0,
-  cursedDrainAccum: 0,
   cursedEnemyTimer: 0,
   // Extra stalkers (level 9+)
   extraStalkers:    [],
@@ -99,6 +97,24 @@ export const state = {
   hintText:             '',
   hintTimer:            0,
   levelTimer:           0,   // ms since level started, used to gate hallucinations
+  graceTimer:           0,   // ms remaining of the start-of-level enemy freeze
+  blindOneAwake:        true, // GAUNTLET staggers the Blind One's activation
+  blackoutActive:       false, // LIGHTS ON: player-triggered darkness
+  blackoutTimer:        0,    // ms remaining of current blackout
+  blackoutCooldown:     0,    // ms until blackout is available again
+  // Maze Master intercom
+  intercomMsg:          null,  // { text, elapsed, alpha } currently displayed line
+  intercomQueue:        [],    // pending lines (never overlap two messages)
+  imLevel5Fired:        false, // run-scoped: level-5 reach line played
+  imGauntletFired:      false, // run-scoped: first-Gauntlet line played
+  im90Fired:            false, // per-level: survived-90s line played
+  imExitFired:          false, // per-level: exit-hesitation line played
+  imVoidFired:          false, // per-level: VOID-start line played
+  imStillTimer:         0,     // ms standing still (resets on movement)
+  imStillCooldown:      0,     // ms until the standing-still line can fire again
+  imExitHesitateTimer:  0,     // ms lingering near the exit without entering
+  // THE VOID
+  wallProximityTimer:   0,     // ms until next wall-proximity sonar check (VOID only)
   hallucinVignette:     0,   // 0-1, decays over 200ms when an audio hallucination fires
   // Death replay
   replayBuffer:         [],

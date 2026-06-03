@@ -19,7 +19,9 @@
     <div id="s-notes" class="stat-small"></div>
     <div id="s-type"  class="stat-type"></div>
     <div id="s-lights-on" class="stat-warn"  style="display:none">💡 LIGHTS ON</div>
+    <div id="s-blackout"  class="stat-small" style="display:none"></div>
     <div id="s-silence"   class="stat-small" style="display:none">🔇 SILENCE</div>
+    <div id="s-void"      class="stat-small" style="display:none">◼ THE VOID</div>
     <div id="s-limited"   class="stat-warn"  style="display:none">BRIGHTER = MORE DANGEROUS</div>
     <div id="s-cursed"    class="stat-warn"  style="display:none">⚡ CURSED ⚡</div>
     <div id="s-spawned"   class="stat-warn"  style="display:none">ANOTHER ONE</div>
@@ -175,6 +177,7 @@
   <div class="li-level"></div>
   <div class="li-type"></div>
   <div class="li-flavor"></div>
+  <div class="li-flavor2" style="display:none"></div>
   <div class="li-sub"></div>
   <div class="li-cycle"></div>
   <div class="li-new-enemy" style="display:none"></div>
@@ -210,9 +213,12 @@
 
 <div id="note-display">
   <div id="note-paper">
+    <div id="note-label"></div>
     <p id="note-text"></p>
   </div>
 </div>
+
+<div id="intercom-msg" style="display:none"></div>
 
 <div id="hint-display" style="display:none"></div>
 

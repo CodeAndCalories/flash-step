@@ -228,16 +228,62 @@ input[type="range"]::-moz-range-thumb {
   z-index: 25; pointer-events: none;
 }
 #note-paper {
-  background: #f0e6cc; padding: 22px 30px; max-width: 360px;
-  transform: rotate(-1.4deg);
-  box-shadow: 0 6px 28px rgba(0,0,0,0.55), 0 0 0 1px #c8a86a;
+  padding: 22px 30px; max-width: 400px;
+  background: rgba(12,10,8,0.92);
+  box-shadow: 0 6px 28px rgba(0,0,0,0.6);
+  border: 1px solid #5a4a2a;
+}
+/* TYPE A — survivor note: cream paper, dark-brown ink, pinned at a slight angle */
+#note-paper.note-survivor {
+  color: #3a2a0a;
+  background: #f0e6cc;
   border: 1px solid #c4a060;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.55), 0 0 0 1px #c8a86a;
+  transform: rotate(-1.4deg);
+}
+#note-paper.note-survivor #note-label { color: #e8c87a; }
+/* TYPE B — Maze Master observation log: cold, clinical monitor readout */
+#note-paper.note-master {
+  color: #c8d8e8;
+  background: rgba(8,12,16,0.94);
+  border: 1px solid #46627e;
+  transform: rotate(0deg);
+  box-shadow: 0 6px 28px rgba(0,0,0,0.6), inset 0 0 32px rgba(80,130,180,0.08);
+}
+#note-label {
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 4px; text-align: center; margin-bottom: 12px; opacity: 0.85;
 }
 #note-text {
-  font-family: 'Share Tech Mono', monospace; font-size: 13px;
-  color: #24140a; line-height: 1.85; letter-spacing: 0.8px;
+  font-size: 13px; line-height: 1.85; letter-spacing: 0.8px;
   white-space: pre-wrap; min-height: 1.85em;
 }
+#note-paper.note-survivor #note-text {
+  font-family: Georgia, 'Times New Roman', serif; font-style: italic;
+}
+#note-paper.note-master #note-text {
+  font-family: 'Share Tech Mono', monospace;
+}
+/* Brief 200 ms "monitor turning on" flicker for Maze Master notes */
+#note-paper.note-flicker { animation: note-monitor-on 0.2s ease-out; }
+@keyframes note-monitor-on {
+  0%   { opacity: 0.15; filter: brightness(2.6); transform: rotate(0deg) scaleY(0.62); }
+  35%  { opacity: 1;    filter: brightness(1.5); transform: rotate(0deg) scaleY(1.03); }
+  50%  { opacity: 0.45; }
+  70%  { opacity: 1; }
+  100% { opacity: 1;    filter: brightness(1);   transform: rotate(0deg) scaleY(1); }
+}
+
+/* ── Maze Master intercom HUD line (bottom-left) ───────────────────────────────── */
+#intercom-msg {
+  position: fixed; bottom: 16px; left: 14px; z-index: 9;
+  font-family: 'Share Tech Mono', monospace;
+  color: #c8d8e8; font-size: 11px; letter-spacing: 2px;
+  text-shadow: 0 0 8px rgba(150,190,230,0.35);
+  pointer-events: none; max-width: 60vw; display: none;
+}
+/* Touch mode: lift above the d-pad so the line never fights the controls */
+body:not(.mouse-mode) #intercom-msg { bottom: 140px; }
 
 /* ── HUD notes counter ────────────────────────────────────────────────────────── */
 
@@ -291,6 +337,11 @@ input[type="range"]::-moz-range-thumb {
   from { opacity: 0; transform: translateY(5px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+.li-flavor2 {
+  font-size: 11px; letter-spacing: 3px; color: #886644;
+  font-style: italic; margin-top: 3px;
+  text-shadow: 0 0 8px #aa550044; opacity: 0;
+}
 .li-sub {
   font-size: 11px; letter-spacing: 4px; color: #664444;
   text-transform: uppercase; margin-top: 8px;
@@ -306,8 +357,12 @@ input[type="range"]::-moz-range-thumb {
 
 /* SILENCE HUD label and spawn type flash */
 #s-silence    { color: #445544; font-size: 9px; letter-spacing: 3px; margin-top: 2px; }
+#s-void       { color: #c8d8e8; font-size: 11px; letter-spacing: 3px; margin-top: 2px;
+                font-family: 'Share Tech Mono', monospace; }
 #s-lights-on  { color: #ffcc44; font-size: 10px; letter-spacing: 3px; margin-top: 2px;
                 text-shadow: 0 0 10px #ffaa0066; animation: warn-pulse 0.5s ease-in-out infinite; }
+#s-blackout   { color: #6688aa; font-size: 10px; letter-spacing: 3px; margin-top: 2px; }
+#s-blackout.blackout-ready { color: #88ccff; text-shadow: 0 0 10px #4488ff66; }
 
 .hi-score-display {
   color: #442222; font-size: 9px; letter-spacing: 3px; margin-top: 18px; opacity: 0.7;
@@ -369,13 +424,16 @@ body.paused #ui,
 body.paused #dpad,
 body.paused #turn-btns,
 body.paused #flash-btn,
+body.paused #intercom-msg,
+body.paused #note-display,
 body.paused #crosshair { visibility: hidden; }
 
 /* ── Mouse mode ───────────────────────────────────────────────────────────────── */
 
 /* Hide touch-only controls on PC */
 body.mouse-mode #dpad,
-body.mouse-mode #turn-btns { display: none; }
+body.mouse-mode #turn-btns,
+body.mouse-mode #flash-btn { display: none; }
 
 /* Click-to-capture prompt */
 #mouse-prompt {
