@@ -341,17 +341,17 @@ function loop(ts) {
   }
   updateIntercom(dt);
 
-  // ── THE VOID — wall-proximity sonar (every 200 ms; walls are invisible here) ───
+  // ── THE VOID — wall-proximity sonar (every 400 ms; walls are invisible here) ───
   if (state.levelType === 'VOID') {
     state.wallProximityTimer -= dt;
     if (state.wallProximityTimer <= 0) {
-      state.wallProximityTimer = 200;
+      state.wallProximityTimer = 400; // was 200 — slower so it reads as a ping, not footsteps
       const dF = voidWallDist(state.P.angle);
       const dL = voidWallDist(state.P.angle - 0.6);
       const dR = voidWallDist(state.P.angle + 0.6);
       const minD = Math.min(dF, dL, dR);
       if (minD < 3.0) {
-        const g = (3.0 - minD) / 3.0 * 0.5;
+        const g = (3.0 - minD) / 3.0 * 0.35; // was 0.5 — slightly quieter
         let pan = 0.0;                              // forward shortest → centre
         if (dR < dF && dR < dL)      pan = 0.4;     // right shortest → pan right
         else if (dL < dF && dL < dR) pan = -0.4;    // left shortest  → pan left
@@ -595,13 +595,18 @@ function loop(ts) {
   if (state.noteDisplay) {
     const nd = state.noteDisplay;
     nd.elapsed += dt;
-    nd.chars = Math.min(nd.text.length, Math.floor(nd.elapsed / nd.charMs));
-    const fadeIn = 280, hold = 2800, fadeOut = 800;
-    const total = nd.text.length * nd.charMs + fadeIn + hold + fadeOut;
-    if (nd.elapsed < fadeIn)               nd.alpha = nd.elapsed / fadeIn;
-    else if (nd.elapsed > total - fadeOut) nd.alpha = Math.max(0, (total - nd.elapsed) / fadeOut);
-    else                                   nd.alpha = 1;
-    if (nd.elapsed >= total) state.noteDisplay = null;
+    // Walking on dismisses the note (grace period so picking it up while moving doesn't instakill it)
+    if (state.isMoving && nd.elapsed > 500) {
+      state.noteDisplay = null;
+    } else {
+      nd.chars = Math.min(nd.text.length, Math.floor(nd.elapsed / nd.charMs));
+      const fadeIn = 200, hold = 1200, fadeOut = 600; // ~2 s visible after typing (was ~4 s)
+      const total = nd.text.length * nd.charMs + fadeIn + hold + fadeOut;
+      if (nd.elapsed < fadeIn)               nd.alpha = nd.elapsed / fadeIn;
+      else if (nd.elapsed > total - fadeOut) nd.alpha = Math.max(0, (total - nd.elapsed) / fadeOut);
+      else                                   nd.alpha = 1;
+      if (nd.elapsed >= total) state.noteDisplay = null;
+    }
   }
 
   // UI timers
@@ -920,6 +925,8 @@ function updateUI() {
         paperEl.classList.remove('note-survivor', 'note-master', 'note-flicker');
         paperEl.classList.add(nd.type === 'master' ? 'note-master' : 'note-survivor');
         labelEl.textContent = nd.type === 'master' ? '— OBSERVATION LOG —' : '— FOUND NOTE —';
+        const hintEl2 = document.getElementById('note-dismiss-hint');
+        if (hintEl2) hintEl2.textContent = isMouseMode() ? '[SPACE to dismiss]' : '[TAP to dismiss]';
         // Master logs flicker on like a monitor turning on (200 ms)
         if (nd.type === 'master') { void paperEl.offsetHeight; paperEl.classList.add('note-flicker'); }
       }
@@ -1481,9 +1488,13 @@ document.addEventListener('keydown', e => {
     return;
   }
   state.keys[e.key.toLowerCase()] = true;
+  // Space / E dismisses an open note (it's already saved to the pause log)
+  if (state.noteDisplay && (e.key === ' ' || e.key.toLowerCase() === 'e')) state.noteDisplay = null;
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) e.preventDefault();
   if (e.key === ' ') startFlash();
 });
+// Any mouse click / screen tap also dismisses an open note
+document.addEventListener('pointerdown', () => { if (state.noteDisplay) state.noteDisplay = null; });
 document.addEventListener('keyup', e => {
   state.keys[e.key.toLowerCase()] = false;
   if (e.key === ' ') stopFlash();

@@ -275,7 +275,7 @@ export function draw(lit, bob, outline) {
           const mr2   = (18 + mbr * 55) | 0;
           const mg2   = (25 + mbr * 72) | 0;
           const mbl2  = (40 + mbr * 98) | 0;
-          ctx.globalAlpha = 0.12;
+          ctx.globalAlpha = 0.20; // was 0.12 — too faint over near-identical wall palette
           ctx.fillStyle   = `rgb(${mr2},${mg2},${mbl2})`;
           ctx.fillRect(i * cw, mtop, cw + 1, mwh);
         }
@@ -800,16 +800,13 @@ export function draw(lit, bob, outline) {
     const ghostX    = W / 2 - ghostSW / 2;
     const ghostY    = H / 2 - ghostPH * 0.5 + hs;
     const ghostA    = 0.15 * (0.72 + 0.28 * Math.sin(Date.now() * 0.0014));
-    const stalkerSpr = getSprite('stalker');
     ctx.save();
-    ctx.globalAlpha = ghostA * Math.min(1, lit * 1.4);
-    if (stalkerSpr) {
-      ctx.drawImage(stalkerSpr, ghostX, ghostY, ghostSW, ghostPH);
-    } else {
-      ctx.fillStyle = 'rgba(210,215,255,1)';
-      ctx.fillRect(ghostX + ghostSW * 0.23, ghostY + ghostPH * 0.2, ghostSW * 0.54, ghostPH * 0.76);
-      ctx.beginPath(); ctx.ellipse(W / 2, ghostY + ghostPH * 0.13, ghostSW * 0.26, ghostPH * 0.16, 0, 0, Math.PI * 2); ctx.fill();
-    }
+    // White silhouette — the dark stalker sprite was invisible at this alpha on a dark scene.
+    // lit*3 lets it reach the intended ~0.15 even at REFLECTION's low base brightness (~0.35).
+    ctx.globalAlpha = ghostA * Math.min(1, lit * 3);
+    ctx.fillStyle = 'rgba(225,228,255,1)';
+    ctx.fillRect(ghostX + ghostSW * 0.23, ghostY + ghostPH * 0.2, ghostSW * 0.54, ghostPH * 0.76);
+    ctx.beginPath(); ctx.ellipse(W / 2, ghostY + ghostPH * 0.13, ghostSW * 0.26, ghostPH * 0.16, 0, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
     ctx.restore();
   }

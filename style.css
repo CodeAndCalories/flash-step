@@ -264,6 +264,11 @@ input[type="range"]::-moz-range-thumb {
 #note-paper.note-master #note-text {
   font-family: 'Share Tech Mono', monospace;
 }
+#note-dismiss-hint {
+  color: #666666; font-size: 9px; letter-spacing: 2px;
+  text-align: center; margin-top: 12px;
+  font-family: 'Share Tech Mono', monospace;
+}
 /* Brief 200 ms "monitor turning on" flicker for Maze Master notes */
 #note-paper.note-flicker { animation: note-monitor-on 0.2s ease-out; }
 @keyframes note-monitor-on {

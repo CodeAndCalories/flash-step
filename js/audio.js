@@ -778,18 +778,18 @@ export function playWallProximity(gain, pan) {
     panner.pan.value = Math.max(-1, Math.min(1, pan || 0));
     panner.connect(getMasterGain());
 
-    // 60 ms white-noise burst, level scaled by proximity
-    const len = Math.floor(a.sampleRate * 0.06);
+    // 30 ms white-noise burst, level scaled by proximity (short & sharp — sonar, not a step)
+    const len = Math.floor(a.sampleRate * 0.03);
     const buf = a.createBuffer(1, len, a.sampleRate);
     const d   = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.2);
     const src = a.createBufferSource(); src.buffer = buf;
 
-    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 800; bp.Q.value = 3.0;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 3.0;
     const g  = a.createGain(); g.gain.value = Math.max(0, gain || 0);
 
-    // Soft echo tail — 80 ms delay with 0.3 feedback, feels like a reflection
-    const delay = a.createDelay(0.25); delay.delayTime.value = 0.08;
+    // Echo tail — 120 ms delay with 0.3 feedback, reads as a spatial reflection
+    const delay = a.createDelay(0.25); delay.delayTime.value = 0.12;
     const fb    = a.createGain(); fb.gain.value = 0.3;
 
     src.connect(bp); bp.connect(g); g.connect(panner);
