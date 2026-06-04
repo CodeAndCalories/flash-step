@@ -54,10 +54,15 @@
   <div id="menu-main" class="menu-panel active">
     <div class="title">THE<br>FLASH-STEP</div>
     <div class="subtitle">Every time you look —<br>it takes a step closer.<br>Find the green wall. Don't look too much.</div>
+    <button class="menu-btn platform-btn continue-btn" id="btn-continue" style="display:none">
+      <span class="continue-main">CONTINUE</span>
+      <span class="continue-sub"></span>
+    </button>
     <nav class="menu-nav">
       <button class="menu-btn platform-btn" id="btn-pc">🖥&nbsp; PLAY ON PC</button>
       <button class="menu-btn platform-btn" id="btn-mobile">📱&nbsp; PLAY ON MOBILE</button>
     </nav>
+    <button id="btn-startover" class="start-over-link" style="display:none">start over</button>
     <div class="menu-sep"></div>
     <nav class="menu-nav">
       <button class="menu-btn menu-btn--sm" id="btn-options">OPTIONS</button>
@@ -113,6 +118,17 @@
     <h2 class="menu-panel-title">EXIT</h2>
     <p class="exit-msg">This is a browser game.<br>Close this tab to exit.</p>
     <button class="menu-btn menu-btn--back" id="btn-exit-back">← BACK</button>
+  </div>
+
+  <!-- Continue panel — choose controls, resume at saved level -->
+  <div id="menu-continue" class="menu-panel">
+    <h2 class="menu-panel-title">CONTINUE</h2>
+    <div class="continue-info"></div>
+    <nav class="menu-nav">
+      <button class="menu-btn platform-btn" id="btn-cont-pc">🖥&nbsp; CONTINUE ON PC</button>
+      <button class="menu-btn platform-btn" id="btn-cont-mobile">📱&nbsp; CONTINUE ON MOBILE</button>
+    </nav>
+    <button class="menu-btn menu-btn--back" id="btn-cont-back">← BACK</button>
   </div>
 </div>
 
@@ -189,7 +205,9 @@
   <div class="msg-sub"></div>
   <div class="msg-info"></div>
   <button class="btn" style="margin-top:38px" id="retry-btn">TRY AGAIN</button>
+  <div id="msg-saved" style="display:none"></div>
   <button class="btn" style="margin-top:8px;display:none" id="share-btn">SHARE SCORE</button>
+  <button class="btn" style="margin-top:8px" id="msg-quit">QUIT TO MENU</button>
 </div>
 
 <svg id="crosshair" width="18" height="18" viewBox="0 0 18 18">
