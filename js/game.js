@@ -116,7 +116,10 @@ function resize() {
   state.H = state.canvas.height = window.innerHeight;
 }
 
-function initGame() {
+function initGame(startLevel) {
+  // Optional start level (used when resuming from a save). Omitted → keep state.level
+  // (so retry stays on the same level and post-win progression isn't reset).
+  if (typeof startLevel === 'number') state.level = startLevel;
   resize();
   const { type, cycle }  = getLevelInfo(state.level);
   state.levelType         = type;
@@ -252,7 +255,7 @@ function initGame() {
   state.blackoutActive    = false;
   state.blackoutTimer     = 0;
   state.blackoutCooldown  = 0;
-  // Intercom — per-level flags + transient display reset (run-scoped flags live in startGame)
+  // Intercom — per-level flags + transient display reset (run-scoped flags live in beginRun)
   state.im90Fired           = false;
   state.imExitFired         = false;
   state.imVoidFired         = false;
@@ -1012,6 +1015,29 @@ function updateUI() {
   }
 }
 
+// ── Checkpoint save ─────────────────────────────────────────────────────────────
+// Separate key from 'flashstep-settings' and 'flashstep-hiscore'. Progress only —
+// never enemy/battery/brightness/mid-level state.
+const SAVE_KEY = 'flashstep-save';
+function loadGameSave() {
+  try { return JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch(e) { return null; }
+}
+// Save current progress. escaped=true also bumps the lifetime escape counter.
+// Level never regresses (Math.max), so re-saving an earlier level is a no-op.
+function writeGameSave(level, escaped) {
+  const prev = loadGameSave() || { level: 1, notes: [], totalEscapes: 0 };
+  const data = {
+    level: Math.max(prev.level || 1, level),
+    notes: state.collectedNotes.slice(),
+    totalEscapes: (prev.totalEscapes || 0) + (escaped ? 1 : 0),
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch(e) {}
+  return data;
+}
+function clearGameSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch(e) {}
+}
+
 // ── High score ────────────────────────────────────────────────────────────────
 function loadHighScore() {
   try { return JSON.parse(localStorage.getItem('flashstep-hiscore') || '{}'); } catch(e) { return {}; }
@@ -1287,6 +1313,20 @@ function showMsg(type) {
     saveHighScore(hs);
     updateHiScoreDisplay();
     state.level++;
+    // Checkpoint: escaping a level unlocks the next one. Only ever advances (Math.max).
+    writeGameSave(state.level, true);
+  }
+  // "Progress saved to Level X" reassurance — reflects the current checkpoint, if any.
+  // (We never save on death; this just shows the checkpoint you already reached.)
+  const savedEl = document.getElementById('msg-saved');
+  if (savedEl) {
+    const sv = loadGameSave();
+    if (sv && sv.level > 1) {
+      savedEl.style.display = 'block';
+      savedEl.textContent   = `Progress saved to Level ${sv.level}`;
+    } else {
+      savedEl.style.display = 'none';
+    }
   }
 }
 
@@ -1417,8 +1457,9 @@ state.ctx.fillStyle = '#000';
 state.ctx.fillRect(0, 0, state.W, state.H);
 applyControlScheme();
 
-// High score display on main menu
+// High score display + checkpoint CONTINUE button on main menu
 updateHiScoreDisplay();
+refreshMenuSaveUI();
 // Share card button
 document.getElementById('share-btn').addEventListener('click', generateShareCard);
 
@@ -1632,23 +1673,91 @@ function hallucinSafeCheck() {
 }
 function hallucinTriggerVignette() { state.hallucinVignette = 1.0; }
 
-function startGame(scheme) {
+// Start a run at startLevel with the given control scheme. notes seeds the run's
+// collected-notes log (from a save when continuing, [] for a new game).
+function beginRun(scheme, startLevel, notes) {
   settings.controlScheme = scheme;
   saveSettings();
-  state.level = 1; getAudio();
+  getAudio();
+  state.collectedNotes  = Array.isArray(notes) ? notes.slice() : [];
   // Run-scoped intercom lines (fire at most once per run)
   state.imLevel5Fired   = false;
   state.imGauntletFired = false;
   document.getElementById('menu').classList.add('hidden');
-  initGame(); state.gameState = 'playing'; state.lastTime = performance.now();
+  initGame(startLevel); state.gameState = 'playing'; state.lastTime = performance.now();
   applyControlScheme();
   startLevelAmbient(); startExitHum();
   startHallucinations(hallucinSafeCheck, hallucinTriggerVignette);
   state.frameId = requestAnimationFrame(loop);
 }
 
-document.getElementById('btn-pc').addEventListener('click',     () => startGame('mouse'));
-document.getElementById('btn-mobile').addEventListener('click', () => startGame('touch'));
+// Switch which menu sub-panel is visible (covers all panels incl. the continue one)
+function showMenuPanel(id) {
+  document.querySelectorAll('#menu .menu-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// Show/hide CONTINUE + relabel the play buttons based on whether a save exists
+function refreshMenuSaveUI() {
+  const save      = loadGameSave();
+  const has       = !!(save && save.level > 1);
+  const contBtn   = document.getElementById('btn-continue');
+  const startover = document.getElementById('btn-startover');
+  const pcBtn     = document.getElementById('btn-pc');
+  const mobileBtn = document.getElementById('btn-mobile');
+  if (has) {
+    contBtn.style.display = 'flex';
+    contBtn.querySelector('.continue-main').textContent = `CONTINUE · LEVEL ${save.level}`;
+    contBtn.querySelector('.continue-sub').textContent  = `${save.totalEscapes || 0} levels escaped`;
+    pcBtn.innerHTML     = '🖥&nbsp; NEW GAME · PC';
+    mobileBtn.innerHTML = '📱&nbsp; NEW GAME · MOBILE';
+    startover.style.display = 'block';
+  } else {
+    contBtn.style.display = 'none';
+    pcBtn.innerHTML     = '🖥&nbsp; PLAY ON PC';
+    mobileBtn.innerHTML = '📱&nbsp; PLAY ON MOBILE';
+    startover.style.display = 'none';
+  }
+}
+
+// Return to the main menu (used by both pause-quit and death-screen quit)
+function goToMenu() {
+  stopLevelAmbient(); stopExitHum(); stopHallucinations();
+  document.getElementById('howto-overlay').style.display = 'none';
+  document.getElementById('msgscreen').classList.remove('show');
+  resumeGame();                      // clears paused state + unsuspends audio
+  state.gameState = 'menu';
+  document.getElementById('menu').classList.remove('hidden');
+  showMenuPanel('menu-main');
+  refreshMenuSaveUI();
+}
+
+// New game (level 1) — overwrites/clears any existing save
+document.getElementById('btn-pc').addEventListener('click',     () => { clearGameSave(); beginRun('mouse', 1, []); });
+document.getElementById('btn-mobile').addEventListener('click', () => { clearGameSave(); beginRun('touch', 1, []); });
+
+// CONTINUE — choose controls, then resume at the saved level with restored notes
+document.getElementById('btn-continue').addEventListener('click', () => {
+  const save = loadGameSave();
+  const info = document.querySelector('#menu-continue .continue-info');
+  if (info && save) info.textContent = `Resume at Level ${save.level} · ${save.totalEscapes || 0} escaped`;
+  showMenuPanel('menu-continue');
+});
+document.getElementById('btn-cont-pc').addEventListener('click', () => {
+  const save = loadGameSave() || { level: 1, notes: [] };
+  beginRun('mouse', Math.max(1, save.level || 1), save.notes);
+});
+document.getElementById('btn-cont-mobile').addEventListener('click', () => {
+  const save = loadGameSave() || { level: 1, notes: [] };
+  beginRun('touch', Math.max(1, save.level || 1), save.notes);
+});
+document.getElementById('btn-cont-back').addEventListener('click', () => showMenuPanel('menu-main'));
+
+// "start over" — clear the save and begin fresh at level 1 (uses the remembered scheme)
+document.getElementById('btn-startover').addEventListener('click', () => {
+  clearGameSave();
+  beginRun(isMouseMode() ? 'mouse' : 'touch', 1, []);
+});
 
 document.getElementById('retry-btn').addEventListener('click', () => {
   document.getElementById('msgscreen').classList.remove('show');
@@ -1656,6 +1765,12 @@ document.getElementById('retry-btn').addEventListener('click', () => {
   applyControlScheme();
   startLevelAmbient(); startExitHum();
   startHallucinations(hallucinSafeCheck, hallucinTriggerVignette);
+});
+
+// Death/win screen → quit to menu, saving current level so quitting never loses progress
+document.getElementById('msg-quit').addEventListener('click', () => {
+  writeGameSave(state.level, false);
+  goToMenu();
 });
 
 // ── Pause panel buttons ────────────────────────────────────────────────────────
@@ -1694,14 +1809,12 @@ document.getElementById('howto-btn').addEventListener('click', () => {
 });
 
 document.getElementById('pause-quit').addEventListener('click', () => {
-  stopLevelAmbient(); stopExitHum(); stopHallucinations();
-  document.getElementById('howto-overlay').style.display = 'none';
-  resumeGame();                      // clears paused state + unsuspends audio
-  state.gameState = 'menu';
-  state.level     = 1;
-  document.getElementById('menu').classList.remove('hidden');
-  document.querySelectorAll('.menu-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('menu-main').classList.add('active');
+  writeGameSave(state.level, false);              // save progress before leaving
+  const btn = document.getElementById('pause-quit');
+  if (btn._t) return;                             // ignore re-clicks during the confirm
+  const orig = btn.textContent;
+  btn.textContent = 'SAVED.';
+  btn._t = setTimeout(() => { btn._t = null; btn.textContent = orig; goToMenu(); }, 800);
 });
 
 // Pause options controls — same settings object, different element IDs

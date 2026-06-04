@@ -33,6 +33,7 @@ body.mouse-mode #s-dist { font-size: 16px; }
 .win  .msg-title { color: #eee; text-shadow: 0 0 50px #ffffff77; }
 .msg-sub  { margin-top: 8px; font-size: 11px; letter-spacing: 4px; color: #555; }
 .msg-info { margin-top: 4px; font-size: 9px; letter-spacing: 3px; color: #333; }
+#msg-saved { margin-top: 12px; font-size: 9px; letter-spacing: 2px; color: #666666; font-family: 'Share Tech Mono', monospace; }
 
 #flash-btn { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 96px; height: 86px; background: transparent; border: 1px solid #ffffff14; color: #ffffff20; font-family: 'Share Tech Mono', monospace; font-size: 8px; letter-spacing: 3px; border-radius: 10px; cursor: pointer; pointer-events: all; z-index: 11; -webkit-tap-highlight-color: transparent; transition: all .08s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
 #flash-btn .fi { font-size: 24px; line-height: 1; opacity: 0.3; }
@@ -160,6 +161,30 @@ body.mouse-mode #s-dist { font-size: 16px; }
   border-color: #cc2222; color: #ff5555;
   box-shadow: 0 0 50px #99111155; background: #77111133;
 }
+
+/* Continue button — amber, to distinguish the prominent resume action from red play */
+.continue-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  border-color: #c8a040; color: #c8a040;
+  box-shadow: 0 0 28px #c8a04033, inset 0 0 20px #c8a04011;
+}
+.continue-btn:hover, .continue-btn:active {
+  border-color: #e0b850; color: #f0cd60;
+  box-shadow: 0 0 50px #c8a04055; background: #c8a04022;
+}
+.continue-btn .continue-main { font-size: 13px; letter-spacing: 5px; }
+.continue-btn .continue-sub  { font-size: 9px; letter-spacing: 2px; color: #666666; text-transform: none; }
+
+/* "start over" — low-key text link so a fresh start is easy but not accidental */
+.start-over-link {
+  display: block; margin: 8px auto 0; background: none; border: none;
+  color: #666666; font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 2px; cursor: pointer; text-transform: lowercase;
+  -webkit-tap-highlight-color: transparent;
+}
+.start-over-link:hover { text-decoration: underline; color: #888888; }
+
+.continue-info { font-size: 10px; letter-spacing: 2px; color: #886633; margin-bottom: 10px; }
 
 .menu-sep { width: 50%; height: 1px; background: #1e0606; margin: 14px auto 4px; }
 
