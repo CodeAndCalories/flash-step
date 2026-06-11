@@ -53,6 +53,7 @@ document.getElementById('howto-back').addEventListener('click',  () => { howtoOv
 const volSlider   = document.getElementById('opt-volume');
 const flashSlider = document.getElementById('opt-flash');
 const shakeBtn    = document.getElementById('opt-shake');
+const grainBtn    = document.getElementById('opt-grain');
 const sensSlider  = document.getElementById('opt-sens');
 
 // Seed controls from loaded settings
@@ -60,6 +61,7 @@ volSlider.value   = settings.masterVolume;
 flashSlider.value = settings.flashFade;
 sensSlider.value  = settings.mouseSens;
 syncShakeBtn();
+syncGrainBtn();
 
 volSlider.addEventListener('input', () => {
   settings.masterVolume = parseFloat(volSlider.value);
@@ -86,5 +88,16 @@ sensSlider.addEventListener('input', () => {
 function syncShakeBtn() {
   shakeBtn.textContent = settings.screenshake ? 'ON' : 'OFF';
   shakeBtn.setAttribute('aria-pressed', String(settings.screenshake));
+}
+
+grainBtn.addEventListener('click', () => {
+  settings.grain = !settings.grain;
+  syncGrainBtn();
+  saveSettings();
+});
+
+function syncGrainBtn() {
+  grainBtn.textContent = settings.grain ? 'ON' : 'OFF';
+  grainBtn.setAttribute('aria-pressed', String(settings.grain));
 }
 

@@ -1330,6 +1330,18 @@ function showMsg(type) {
       savedEl.style.display = 'none';
     }
   }
+  // Death-screen run stats — display-only reads of values already tracked in
+  // state (level, collected notes, ms survived this level). No new tracking.
+  const statsEl = document.getElementById('msg-stats');
+  if (statsEl) {
+    if (type === 'dead') {
+      statsEl.style.display = 'block';
+      statsEl.textContent =
+        `LEVEL ${state.level} · ${state.collectedNotes.length} NOTES · ${Math.round(state.levelTimer / 1000)}s SURVIVED`;
+    } else {
+      statsEl.style.display = 'none';
+    }
+  }
 }
 
 // ── Level intro card ──────────────────────────────────────────────────────────
@@ -1338,6 +1350,7 @@ function showLevelIntro() {
   const el = document.getElementById('level-intro');
   if (!el) return;
   const info = getLevelInfo(state.level);
+  el.dataset.type = info.type; // presentation only — drives per-type accent color in CSS
   el.querySelector('.li-level').textContent  = `LEVEL ${state.level}`;
   el.querySelector('.li-sub').textContent    = TYPE_SUBS[info.type];
   el.querySelector('.li-flavor').textContent = FLAVOR_TEXT[info.type] || '';
@@ -1801,6 +1814,7 @@ document.getElementById('pause-options-btn').addEventListener('click', () => {
   document.getElementById('p-opt-flash').value  = settings.flashFade;
   document.getElementById('p-opt-sens').value   = settings.mouseSens;
   syncPauseShake();
+  syncPauseGrain();
   showPausePanel('pause-opts');
 });
 
@@ -1834,6 +1848,11 @@ document.getElementById('p-opt-shake').addEventListener('click', () => {
   syncPauseShake();
   saveSettings();
 });
+document.getElementById('p-opt-grain').addEventListener('click', () => {
+  settings.grain = !settings.grain;
+  syncPauseGrain();
+  saveSettings();
+});
 document.getElementById('p-opt-sens').addEventListener('input', e => {
   settings.mouseSens = parseFloat(e.target.value);
   saveSettings();
@@ -1843,6 +1862,12 @@ function syncPauseShake() {
   const btn = document.getElementById('p-opt-shake');
   btn.textContent = settings.screenshake ? 'ON' : 'OFF';
   btn.setAttribute('aria-pressed', String(settings.screenshake));
+}
+
+function syncPauseGrain() {
+  const btn = document.getElementById('p-opt-grain');
+  btn.textContent = settings.grain ? 'ON' : 'OFF';
+  btn.setAttribute('aria-pressed', String(settings.grain));
 }
 
 

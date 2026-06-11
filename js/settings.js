@@ -2,6 +2,7 @@ export const settings = {
   masterVolume:  0.8,
   flashFade:     1.0,   // multiplier: 0.4 = slow fade, 2.0 = fast fade
   screenshake:   true,
+  grain:         true,   // film grain overlay
   controlScheme: 'auto', // 'auto' | 'mouse' | 'touch'
   mouseSens:     0.001,
 };
@@ -12,6 +13,7 @@ try {
   if (typeof s.masterVolume  === 'number')  settings.masterVolume  = s.masterVolume;
   if (typeof s.flashFade     === 'number')  settings.flashFade     = s.flashFade;
   if (typeof s.screenshake   === 'boolean') settings.screenshake   = s.screenshake;
+  if (typeof s.grain         === 'boolean') settings.grain         = s.grain;
   if (typeof s.controlScheme === 'string')  settings.controlScheme = s.controlScheme;
   if (typeof s.mouseSens     === 'number')  settings.mouseSens     = s.mouseSens;
 } catch(e) {}
