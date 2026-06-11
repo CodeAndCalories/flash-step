@@ -12,7 +12,7 @@
 
 <div id="ui">
   <div class="stat" id="s-brightness">
-    <div class="brt-row">💡<span class="brt-outer"><span id="brightness-bar-fill" class="brt-fill"></span></span></div>
+    <div class="brt-row">💡<span class="brt-outer"><span id="brightness-bar-fill" class="brt-fill"></span><span id="brightness-bar-lost"></span></span></div>
     <div id="s-visible" class="brt-warn" style="display:none">⚠ VISIBLE</div>
   </div>
   <div style="text-align:center;pointer-events:none">
@@ -64,6 +64,14 @@
       <button class="menu-btn platform-btn" id="btn-pc">🖥&nbsp; PLAY ON PC</button>
       <button class="menu-btn platform-btn" id="btn-mobile">📱&nbsp; PLAY ON MOBILE</button>
     </nav>
+    <div id="daily-block">
+      <button class="menu-btn daily-btn" id="btn-daily">DAILY · #1</button>
+      <div id="daily-result" style="display:none">
+        <div class="daily-result-text"></div>
+        <button class="menu-btn menu-btn--sm daily-btn" id="btn-daily-share">COPY RESULT</button>
+      </div>
+      <div class="daily-sub">same maze for everyone · one attempt</div>
+    </div>
     <button id="btn-startover" class="start-over-link" style="display:none">start over</button>
     <!-- Mutators — shown only once the game has been beaten (hiscore maxLevel ≥ 10) -->
     <div id="mutators-section" style="display:none">
@@ -76,6 +84,14 @@
       <div class="mut-row">
         <button class="toggle-btn mut-btn" id="mut-permadeath" aria-pressed="false">PERMADEATH</button>
         <span class="mut-desc">one life. make it count.</span>
+      </div>
+      <div class="mut-row">
+        <button class="toggle-btn mut-btn" id="mut-dyinglight" aria-pressed="false">DYING LIGHT</button>
+        <span class="mut-desc">every level, the dark gets closer.</span>
+      </div>
+      <div class="mut-row">
+        <button class="toggle-btn mut-btn" id="mut-allgauntlet" aria-pressed="false">ALL GAUNTLET</button>
+        <span class="mut-desc">no rotation. no mercy.</span>
       </div>
     </div>
     <div class="menu-sep"></div>
@@ -90,6 +106,7 @@
       FIRST FLASH shows a map · LISTEN for heartbeat
     </div>
     <div id="hi-score" class="hi-score-display"></div>
+    <div id="file-closed-marker" style="display:none">— FILE CLOSED —</div>
   </div>
 
   <!-- Options panel -->
@@ -150,6 +167,17 @@
       <button class="menu-btn platform-btn" id="btn-cont-mobile">📱&nbsp; CONTINUE ON MOBILE</button>
     </nav>
     <button class="menu-btn menu-btn--back" id="btn-cont-back">← BACK</button>
+  </div>
+
+  <!-- Daily panel — choose controls, start today's seeded run -->
+  <div id="menu-daily" class="menu-panel">
+    <h2 class="menu-panel-title">DAILY</h2>
+    <div class="daily-info"></div>
+    <nav class="menu-nav">
+      <button class="menu-btn platform-btn daily-btn" id="btn-daily-pc">🖥&nbsp; DAILY ON PC</button>
+      <button class="menu-btn platform-btn daily-btn" id="btn-daily-mobile">📱&nbsp; DAILY ON MOBILE</button>
+    </nav>
+    <button class="menu-btn menu-btn--back" id="btn-daily-back">← BACK</button>
   </div>
 </div>
 
@@ -232,10 +260,12 @@
   <div class="msg-sub"></div>
   <div class="msg-info"></div>
   <div id="msg-runover" style="display:none"></div>
+  <div id="msg-daily" style="display:none"></div>
   <button class="btn" style="margin-top:38px" id="retry-btn">TRY AGAIN</button>
   <div id="msg-saved" style="display:none"></div>
   <div id="msg-stats" style="display:none"></div>
   <button class="btn" style="margin-top:8px;display:none" id="share-btn">SHARE SCORE</button>
+  <button class="btn" style="margin-top:8px;display:none" id="daily-copy-btn">COPY RESULT</button>
   <button class="btn" style="margin-top:8px" id="msg-quit">QUIT TO MENU</button>
 </div>
 
@@ -271,6 +301,8 @@
 <div id="mutator-tag" style="display:none"></div>
 
 <div id="hint-display" style="display:none"></div>
+
+<div id="lore-toast" style="display:none">FILE CLOSED — check your notes</div>
 
 <!-- ── ? shortcut button (pause only) ───────────────────────────────────── -->
 <button id="howto-btn" aria-label="How to play">?</button>

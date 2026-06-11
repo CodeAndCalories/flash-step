@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { settings, saveSettings } from './settings.js';
 import { getAudio, playShutter, playFootstep, playHeartbeat, playCatch, playWin, playPickup, playScreech, startAmbient, stopAmbient, startExitHum, stopExitHum, updateExitHum, suspendAudio, resumeAudio, setMasterVolume, playPanicWarning, updatePanicAudio, resetPanicAudio, playMimicPulse, playPaperRustle, playBatScreech, playRatSkitter, playWebStick, playBlindClick, playCursedFlash, startHallucinations, stopHallucinations, startEndingHeartbeat, stopEndingHeartbeat, startReflectionAmbient, stopReflectionAmbient, playReflectionEcho, playStalkerDrag, playMimicWhisper, playIntercom, playWallProximity } from './audio.js';
-import { genMaze, bfs, shuf, findDeadEnds } from './maze.js';
+import { genMaze, bfs, shuf, findDeadEnds, mulberry32, hashSeed } from './maze.js';
 import { draw, loadSprites, getSpriteReport } from './renderer.js';
 import { stepEnemy, stepMimic, stepBlindOne, stepEntity, checkEnd, isWall } from './enemy.js';
 
@@ -47,10 +47,16 @@ const NOTE_TEXTS = [
   "Last note. Going for the exit. If you're reading this — run. Don't use the flash if you can help it. And if you hear his voice on the intercom — don't answer. He wants you to stop moving. Keep moving.",
   // Level 20 — Maze Master
   "I'm sorry. That's not something this process requires. But you were never supposed to see all of it. The exit is open. I won't close it again. I don't think I could if I tried.",
+  // Index 20 — FILE CLOSED reward (lore log complete). APPEND-ONLY slot: never
+  // part of the level cycle — getNoteText's modulus is pinned to NOTE_CYCLE.
+  "File closed. You collected everything, so you've earned the answer you've been circling. Subject 24 was named Daniel. He reached the exit on day 211 and stood there until the maze decided he'd stayed. What this place takes, it keeps, and it puts to work. He follows the flash because the light is how he searched. He is not hunting you. He is still looking for the door. If you see him — and you have — don't blame him. Tell Mara he never stopped. There's no one else left to tell her. — M.",
 ];
-// Cycles back to index 0 after level 20; parity (and thus voice) is preserved.
+// Levels cycle through notes 0-19 only; parity (and thus voice) is preserved.
+// NOTE_CYCLE is pinned to 20 — NOT NOTE_TEXTS.length, which is now 21 — so
+// level math can never reach index 20 (the FILE CLOSED reward).
+const NOTE_CYCLE = 20;
 function getNoteText(lvl) {
-  return NOTE_TEXTS[(lvl - 1) % NOTE_TEXTS.length];
+  return NOTE_TEXTS[(lvl - 1) % NOTE_CYCLE];
 }
 // Odd levels are SURVIVOR notes, even levels are MAZE MASTER logs.
 function noteType(lvl) {
@@ -94,6 +100,11 @@ const TYPE_MAZE_MOD = { HUNT: -4, ECHO: 4, SILENCE: 0, GAUNTLET: 0, 'LIGHTS ON':
 const FLAVOR2_TEXT = { GAUNTLET: "They don't all wake at once.", VOID: "Your footprints are all you have." };
 
 function getLevelInfo(level) {
+  // ALL GAUNTLET mutator: force the type on every level EXCEPT 10, which keeps
+  // its normal type so the ending sequence is untouched (endless 11+ is forced
+  // too). Cycle uses the normal rotation math so difficulty scaling is unchanged.
+  if (state.mutators.allGauntlet && level !== 10)
+    return { type: 'GAUNTLET', cycle: level <= 2 ? 0 : Math.floor((level - 3) / 4) + 1 };
   // REFLECTION: every 7th level (7, 14, 21, 28, …) — takes priority over other overrides
   if (level >= 7 && level % 7 === 0) return { type: 'REFLECTION', cycle: Math.floor(level / 7) };
   // THE VOID: level 10 and every 9th after (10, 19, 28, …). Priority REFLECTION > VOID > LIGHTS ON.
@@ -108,6 +119,22 @@ function getLevelInfo(level) {
 
 const MOVE_SPD   = 2.2;
 const TURN_SPD   = 2.0;
+
+// DYING LIGHT mutator — all tunables in one place. The cap shrinks the MAX
+// achievable brightness as the run progresses; the floor keeps it beatable.
+const MUT_DYING_LIGHT = {
+  capStart:    1.00,  // brightness cap multiplier, level 1
+  capPerLevel: 0.06,  // cap loss per level completed
+  capFloor:    0.55,  // cap never drops below this
+  batteryMult: 0.75,  // batteries restore 75% of normal
+};
+// Max achievable brightness this level. Returns the normal ceiling (1.0) when
+// the mutator is off, so every clamp site reduces to the old Math.min(1.0, …).
+function dyingLightCap() {
+  if (!state.mutators.dyingLight) return 1.0;
+  return Math.max(MUT_DYING_LIGHT.capFloor,
+    MUT_DYING_LIGHT.capStart - MUT_DYING_LIGHT.capPerLevel * (state.level - 1));
+}
 let   mouseDeltaX = 0;
 let   smoothedMouseDelta = 0;
 
@@ -121,6 +148,12 @@ function initGame(startLevel) {
   // (so retry stays on the same level and post-win progression isn't reset).
   if (typeof startLevel === 'number') state.level = startLevel;
   resize();
+  // Level-generation RNG. Daily runs: ONE deterministic generator per level,
+  // seeded from hash(date|level), passed to every gen call below — never
+  // re-seeded mid-generation. Normal runs: Math.random, behavior unchanged.
+  const rng = state.dailyRun
+    ? mulberry32(hashSeed(`${state.dailyRun.date}|${state.level}`))
+    : Math.random;
   const { type, cycle }  = getLevelInfo(state.level);
   state.levelType         = type;
   const useStalker        = type === 'HUNT' || type === 'GAUNTLET' || type === 'LIGHTS ON' || type === 'VOID';
@@ -129,7 +162,7 @@ function initGame(startLevel) {
   const cycleBonus        = Math.max(0, cycle - 1) * 2;
   const sz = Math.max(9, Math.min(9 + state.level * 2 + cycleBonus + TYPE_MAZE_MOD[type], 35));
   const s  = sz % 2 === 0 ? sz + 1 : sz;
-  const { g, cols, rows } = genMaze(s, s);
+  const { g, cols, rows } = genMaze(s, s, rng);
   state.MAP = g; state.COLS = cols; state.ROWS = rows;
 
   state.P.x = 1.5; state.P.y = 1.5; state.P.angle = Math.PI * 0.15;
@@ -149,8 +182,8 @@ function initGame(startLevel) {
     if (score > best) { best = score; cands = []; }
     if (score === best) cands.push([c, r]);
   }
-  shuf(cands);
-  const [ec, er] = cands[Math.random() * Math.min(cands.length, Math.max(1, cands.length * 0.2)) | 0];
+  shuf(cands, rng);
+  const [ec, er] = cands[rng() * Math.min(cands.length, Math.max(1, cands.length * 0.2)) | 0];
   // REFLECTION: find mimic spawn far from player start (use dp = distance from player BFS)
   let reflMX = 1.5, reflMY = 1.5;
   if (useReflection) {
@@ -187,12 +220,12 @@ function initGame(startLevel) {
   const openCells = [];
   for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++)
     if (state.MAP[r][c] === 0 && !exclude.has(`${c},${r}`)) openCells.push([c, r]);
-  shuf(openCells);
+  shuf(openCells, rng);
   state.batteries = openCells.slice(0, numBatteries).map(([c, r]) => ({ x: c + 0.5, y: r + 0.5 }));
 
   // Note + webs (cells not already used for batteries)
   const restCells = openCells.slice(numBatteries);
-  shuf(restCells);
+  shuf(restCells, rng);
   state.note = restCells.length > 0 ? { x: restCells[0][0] + 0.5, y: restCells[0][1] + 0.5 } : null;
   state.webs = restCells.slice(1, 4).map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, hit: false }));
 
@@ -207,7 +240,7 @@ function initGame(startLevel) {
       if (d > bbest) { bbest = d; bcands = []; }
       if (d === bbest) bcands.push([c2, r2]);
     }
-    shuf(bcands);
+    shuf(bcands, rng);
     const [bc2, br2] = bcands[0] || [cols - 2, rows - 2];
     state.B = { x: bc2 + 0.5, y: br2 + 0.5, active: true, moveTimer: 0, lostTimer: 0 };
   } else {
@@ -221,15 +254,21 @@ function initGame(startLevel) {
   // Place decoy eyes in dead ends far from the player start
   const deadEnds = findDeadEnds(state.MAP, cols, rows);
   const numDecoys = Math.min(3 + Math.floor(state.level / 5), 5);
-  shuf(deadEnds);
+  shuf(deadEnds, rng);
   state.decoys = deadEnds
     .filter(([c, r]) => (c - 1) ** 2 + (r - 1) ** 2 > 9)
     .slice(0, numDecoys)
-    .map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, phase: Math.random() * Math.PI * 2 }));
+    .map(([c, r]) => ({ x: c + 0.5, y: r + 0.5, phase: rng() * Math.PI * 2 }));
 
   // Flash is always unlimited; batteries increase brightness instead
   state.flashCount      = Infinity;
   state.flashBrightness = 0.35;
+  // DYING LIGHT: defensive level-start clamp (floor 0.55 > base 0.35, so this
+  // is a no-op at default tuning) + size the meter's dim "lost range" segment
+  if (state.mutators.dyingLight)
+    state.flashBrightness = Math.min(state.flashBrightness, dyingLightCap());
+  const lostEl = document.getElementById('brightness-bar-lost');
+  if (lostEl) lostEl.style.width = `${Math.round((1 - dyingLightCap()) * 100)}%`;
   state.flashHeld = false; state.flashAlpha = 0;
   state.flashDecay = 0; state.outlineAlpha = 0; state.flashHeldMs = 0;
   state.bobTimer = 0; state.isMoving = false; state.footstepTimer = 0;
@@ -279,6 +318,7 @@ function initGame(startLevel) {
   state.level1Hints    = { flash: false, door: false, enemy: false, idle: false };
   state.level1IdleMs   = 0; state.level1DoorMs = 0;
   resetPanicAudio();
+  hideLoreToast(); // new level starting — clear any lingering toast
   showLevelIntro();
   updateUI();
 }
@@ -307,6 +347,10 @@ function loop(ts) {
   if (state.gameState !== 'playing') { state.frameId = requestAnimationFrame(loop); return; }
 
   state.levelTimer += dt;
+  // Daily timer: accumulates during play only — pause, menu, death replay and
+  // the jump-scare branch all return before this line. (The level intro card
+  // overlays live gameplay, so its time correctly counts as play.)
+  if (state.dailyRun) state.dailyRun.timeMs += dt;
   if (state.graceTimer > 0) state.graceTimer -= dt;
   const enemiesFrozen = state.graceTimer > 0; // start-of-level grace: nothing hunts yet
   // GAUNTLET wakes the Blind One late so all three threats don't converge at once
@@ -440,8 +484,10 @@ function loop(ts) {
     state.ENEMY_MS     = 150;
     // Extra stamina drain (3× rate)
     state.stamina = Math.max(0, state.stamina - dt * 2 / 4000);
-    // Cursed flash forces maximum brightness
-    state.flashBrightness = 1.0;
+    // Cursed flash forces maximum brightness (DYING LIGHT: capped — the strobe
+    // still renders full-bright while cursed via effBright; only the lasting
+    // post-curse brightness respects the cap. Inactive: returns 1.0, unchanged.)
+    state.flashBrightness = dyingLightCap();
     if (state.cursedTimer <= 0) {
       state.cursedFlash     = false;
       state.flashHeld       = false;
@@ -574,7 +620,10 @@ function loop(ts) {
   state.batteries = state.batteries.filter(b => {
     const dx = state.P.x - b.x, dy = state.P.y - b.y;
     if (dx * dx + dy * dy < 0.36) {
-      state.flashBrightness = Math.min(1.0, state.flashBrightness + 0.12);
+      // DYING LIGHT: reduced restore + per-level cap. Inactive: gain stays 0.12
+      // and dyingLightCap() returns 1.0 — arithmetic identical to the old line.
+      const gain = state.mutators.dyingLight ? 0.12 * MUT_DYING_LIGHT.batteryMult : 0.12;
+      state.flashBrightness = Math.min(dyingLightCap(), state.flashBrightness + gain);
       playPickup();
       return false;
     }
@@ -587,6 +636,7 @@ function loop(ts) {
     if (ndx * ndx + ndy * ndy < 0.25) {
       state.noteCollected = true;
       if (!state.collectedNotes.includes(state.level)) state.collectedNotes.push(state.level);
+      addToLoreLog(state.level); // persistent collection — independent of save guards
       playPaperRustle();
       const text = getNoteText(state.level);
       const type = noteType(state.level);
@@ -1025,10 +1075,14 @@ const SAVE_KEY = 'flashstep-save';
 function loadGameSave() {
   try { return JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch(e) { return null; }
 }
-// True while the current run has any challenge mutator enabled
+// True while the current run has any challenge mutator enabled. Key-agnostic:
+// every flag in state.mutators is covered, so new mutators inherit the save/
+// hiscore guards with no further changes.
 function anyMutatorActive() {
   const m = state.mutators;
-  return !!(m && (m.blindMap || m.permadeath));
+  // A daily run is guarded exactly like a mutator run: no checkpoint/hiscore
+  // writes (the daily writes only its own 'flashstep-daily' attempt record).
+  return !!(state.dailyRun || (m && Object.values(m).some(Boolean)));
 }
 // Save current progress. escaped=true also bumps the lifetime escape counter.
 // Level never regresses (Math.max), so re-saving an earlier level is a no-op.
@@ -1047,6 +1101,117 @@ function writeGameSave(level, escaped) {
 }
 function clearGameSave() {
   try { localStorage.removeItem(SAVE_KEY); } catch(e) {}
+}
+
+// ── Lore log ──────────────────────────────────────────────────────────────────
+// Account-level note collection ('flashstep-lore'), like the hiscore: written
+// directly at pickup — NOT routed through writeGameSave, so the mutator/daily
+// guards never block it — and never touched by clearGameSave / NEW GAME.
+// found[] holds canonical note numbers 1-20 (endless level 23 → note 3).
+const LORE_KEY = 'flashstep-lore';
+function noteSlot(lvl) { return ((lvl - 1) % NOTE_CYCLE) + 1; }
+function loadLore() {
+  try {
+    const l = JSON.parse(localStorage.getItem(LORE_KEY) || 'null');
+    if (l && Array.isArray(l.found)) return { found: l.found, fileClosed: !!l.fileClosed };
+  } catch (e) {}
+  return null;
+}
+function saveLore(lore) {
+  try { localStorage.setItem(LORE_KEY, JSON.stringify(lore)); } catch (e) {}
+}
+function addToLoreLog(lvl) {
+  const lore = loadLore() || { found: [], fileClosed: false };
+  const n = noteSlot(lvl);
+  if (!lore.found.includes(n)) {
+    lore.found.push(n);
+    lore.found.sort((a, b) => a - b);
+  }
+  if (!lore.fileClosed && lore.found.length >= NOTE_CYCLE) {
+    lore.fileClosed = true;
+    state.loreToastPending = true; // announce at the next safe moment
+  }
+  saveLore(lore);
+}
+// One-time boot migration: if the lore key is missing, seed it from the
+// checkpoint's notes array so no previously collected note is ever lost.
+function migrateLore() {
+  if (loadLore()) return; // lore key exists → leave it alone
+  const sv = loadGameSave();
+  const found = [];
+  if (sv && Array.isArray(sv.notes))
+    for (const lvl of sv.notes) {
+      const n = noteSlot(lvl);
+      if (!found.includes(n)) found.push(n);
+    }
+  found.sort((a, b) => a - b);
+  saveLore({ found, fileClosed: found.length >= NOTE_CYCLE });
+}
+// FILE CLOSED toast — fired only at safe moments (level complete / pause open)
+function maybeFireLoreToast() {
+  if (!state.loreToastPending) return;
+  state.loreToastPending = false;
+  const t = document.getElementById('lore-toast');
+  if (!t) return;
+  t.style.display = 'block';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => { t.style.display = 'none'; }, 3800);
+}
+function hideLoreToast() {
+  const t = document.getElementById('lore-toast');
+  if (t) { clearTimeout(t._t); t.style.display = 'none'; }
+}
+
+// ── DAILY RUN ─────────────────────────────────────────────────────────────────
+// One shared, seeded maze per UTC day — the date flips at UTC midnight so the
+// whole world plays the same daily. Levels 1-5, one attempt per day, recorded
+// to its own 'flashstep-daily' key (never the checkpoint or hiscore).
+const DAILY_EPOCH  = '2026-06-12'; // daily #1 — launch epoch, easy to change
+const DAILY_LEVELS = 5;
+function dailyDateStr() { return new Date().toISOString().slice(0, 10); } // UTC YYYY-MM-DD
+function dailyNumber(dateStr) {
+  return Math.floor((Date.parse(dateStr) - Date.parse(DAILY_EPOCH)) / 86400000) + 1;
+}
+function loadDailyResult() {
+  try { return JSON.parse(localStorage.getItem('flashstep-daily') || 'null'); } catch (e) { return null; }
+}
+function saveDailyResult(data) {
+  try { localStorage.setItem('flashstep-daily', JSON.stringify(data)); } catch (e) {}
+}
+function fmtDailyTime(ms) {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+function dailyShareText(num, cleared, timeMs) {
+  const icon = cleared >= DAILY_LEVELS ? '✅' : '🔦';
+  return `FLASH-STEP DAILY #${num}\n${icon} ${cleared}/${DAILY_LEVELS} · ${fmtDailyTime(timeMs)}\nflash-step on itch`;
+}
+// Clipboard with textarea/execCommand fallback (GitHub Pages + older mobile)
+function fallbackCopy(text, onDone) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    onDone();
+  } catch (e) {}
+}
+function copyDailyResult(btn, num, cleared, timeMs) {
+  const text = dailyShareText(num, cleared, timeMs);
+  const flip = () => {            // "COPIED." for 800 ms, same pattern as SAVED.
+    if (btn._t) return;
+    const orig = btn.textContent;
+    btn.textContent = 'COPIED.';
+    btn._t = setTimeout(() => { btn._t = null; btn.textContent = orig; }, 800);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(flip, () => fallbackCopy(text, flip));
+  } else {
+    fallbackCopy(text, flip);
+  }
 }
 
 // ── High score ────────────────────────────────────────────────────────────────
@@ -1354,7 +1519,7 @@ function showMsg(type) {
   const savedEl = document.getElementById('msg-saved');
   if (savedEl) {
     const sv = loadGameSave();
-    if (sv && sv.level > 1) {
+    if (sv && sv.level > 1 && !state.dailyRun) { // daily: saved-line is noise — hide
       savedEl.style.display = 'block';
       savedEl.textContent   = `Progress saved to Level ${sv.level}`;
     } else {
@@ -1373,6 +1538,28 @@ function showMsg(type) {
       statsEl.style.display = 'none';
     }
   }
+  // ── DAILY RUN — update the attempt record + swap in the result presentation.
+  // Writes go to 'flashstep-daily' only; checkpoint/hiscore writes above were
+  // already blocked by anyMutatorActive() (which treats a daily as guarded).
+  const daily = state.dailyRun;
+  const dailyEnded = !!daily && (type === 'dead' || (type === 'win' && state.winLevel >= DAILY_LEVELS));
+  if (daily) {
+    if (type === 'win') daily.cleared = state.winLevel;
+    saveDailyResult({ date: daily.date, levelsCleared: daily.cleared,
+                      timeMs: Math.round(daily.timeMs), done: dailyEnded });
+    if (shareBtn) shareBtn.style.display = 'none'; // PNG share card stays out of daily
+  }
+  const dailyEl      = document.getElementById('msg-daily');
+  const dailyCopyBtn = document.getElementById('daily-copy-btn');
+  if (dailyEl)      dailyEl.style.display      = dailyEnded ? 'block' : 'none';
+  if (dailyCopyBtn) dailyCopyBtn.style.display = dailyEnded ? 'inline-block' : 'none';
+  if (dailyEnded) {
+    dailyEl.textContent = `DAILY #${daily.num} · ${daily.cleared}/${DAILY_LEVELS} · ${fmtDailyTime(daily.timeMs)}`;
+    retryBtn.style.display = 'none'; // one attempt — no TRY AGAIN / NEXT LEVEL
+  }
+  // FILE CLOSED announcement — level complete is a safe moment (and at level 10
+  // this runs only after the ending card sequence has fully finished)
+  if (type === 'win') maybeFireLoreToast();
 }
 
 // ── Level intro card ──────────────────────────────────────────────────────────
@@ -1484,6 +1671,7 @@ function pauseGame() {
   showPausePanel('pause-main');
   document.getElementById('howto-btn').style.display = 'flex';
   suspendAudio();
+  maybeFireLoreToast(); // pause open is a safe moment for the FILE CLOSED toast
 }
 
 function resumeGame() {
@@ -1493,6 +1681,7 @@ function resumeGame() {
   document.getElementById('howto-btn').style.display  = 'none';
   document.getElementById('howto-overlay').style.display = 'none';
   resumeAudio();
+  hideLoreToast(); // don't let the toast linger into live gameplay
 }
 
 // ── Bootstrap — must run before event listeners reference state.canvas ────────
@@ -1503,6 +1692,8 @@ state.ctx.fillStyle = '#000';
 state.ctx.fillRect(0, 0, state.W, state.H);
 applyControlScheme();
 
+// Lore migration must run before the menu reads the lore key
+migrateLore();
 // High score display + checkpoint CONTINUE button on main menu
 updateHiScoreDisplay();
 refreshMenuSaveUI();
@@ -1722,9 +1913,9 @@ function hallucinTriggerVignette() { state.hallucinVignette = 1.0; }
 // ── Mutators — post-game challenge modifiers ──────────────────────────────────
 // Menu selection lives here until run start; applies to that run only (never
 // persisted). Unlock condition: hiscore maxLevel ≥ 10 (game beaten once).
-const pendingMutators = { blindMap: false, permadeath: false };
+const pendingMutators = { blindMap: false, permadeath: false, dyingLight: false, allGauntlet: false };
 function anyPendingMutator() {
-  return pendingMutators.blindMap || pendingMutators.permadeath;
+  return Object.values(pendingMutators).some(Boolean); // key-agnostic, like anyMutatorActive
 }
 function wireMutatorToggle(id, key) {
   const btn = document.getElementById(id);
@@ -1734,24 +1925,39 @@ function wireMutatorToggle(id, key) {
     btn.setAttribute('aria-pressed', String(pendingMutators[key]));
   });
 }
-wireMutatorToggle('mut-blindmap',   'blindMap');
-wireMutatorToggle('mut-permadeath', 'permadeath');
+wireMutatorToggle('mut-blindmap',    'blindMap');
+wireMutatorToggle('mut-permadeath',  'permadeath');
+wireMutatorToggle('mut-dyinglight',  'dyingLight');
+wireMutatorToggle('mut-allgauntlet', 'allGauntlet');
 
 // Start a run at startLevel with the given control scheme. notes seeds the run's
 // collected-notes log (from a save when continuing, [] for a new game).
-function beginRun(scheme, startLevel, notes) {
+function beginRun(scheme, startLevel, notes, daily = false) {
   settings.controlScheme = scheme;
   saveSettings();
   getAudio();
-  // Mutators: snapshot the menu selection for this run. PERMADEATH always
-  // starts fresh at level 1 — the checkpoint is read-only for mutator runs.
-  state.mutators = { ...pendingMutators };
-  if (state.mutators.permadeath) { startLevel = 1; notes = []; }
+  if (daily) {
+    // DAILY: seeded generation (see initGame), no mutators. The attempt is
+    // consumed at start so a mid-run refresh can't grant a second try.
+    const date = dailyDateStr();
+    state.dailyRun = { date, num: dailyNumber(date), timeMs: 0, cleared: 0 };
+    saveDailyResult({ date, levelsCleared: 0, timeMs: 0, done: false });
+    state.mutators = { blindMap: false, permadeath: false, dyingLight: false, allGauntlet: false };
+  } else {
+    state.dailyRun = null;
+    // Mutators: snapshot the menu selection for this run. PERMADEATH always
+    // starts fresh at level 1 — the checkpoint is read-only for mutator runs.
+    state.mutators = { ...pendingMutators };
+    if (state.mutators.permadeath) { startLevel = 1; notes = []; }
+  }
   const mutTag = document.getElementById('mutator-tag');
   if (mutTag) {
     const names = [];
-    if (state.mutators.blindMap)   names.push('BLIND MAP');
-    if (state.mutators.permadeath) names.push('PERMADEATH');
+    if (state.dailyRun)             names.push(`DAILY #${state.dailyRun.num}`);
+    if (state.mutators.blindMap)    names.push('BLIND MAP');
+    if (state.mutators.permadeath)  names.push('PERMADEATH');
+    if (state.mutators.dyingLight)  names.push('DYING LIGHT');
+    if (state.mutators.allGauntlet) names.push('ALL GAUNTLET');
     mutTag.textContent   = names.join(' · ');
     mutTag.style.display = names.length ? 'block' : 'none';
   }
@@ -1800,6 +2006,32 @@ function refreshMenuSaveUI() {
   const mutSection = document.getElementById('mutators-section');
   if (mutSection) mutSection.style.display =
     (loadHighScore().maxLevel || 0) >= 10 ? 'block' : 'none';
+  // FILE CLOSED marker — subtle, near the hi-score line
+  const fcEl = document.getElementById('file-closed-marker');
+  if (fcEl) {
+    const lore = loadLore();
+    fcEl.style.display = (lore && lore.fileClosed) ? 'block' : 'none';
+  }
+  refreshDailyUI();
+}
+
+// Daily button vs played-today result (no unlock needed — it's levels 1-5)
+function refreshDailyUI() {
+  const date    = dailyDateStr();
+  const num     = dailyNumber(date);
+  const rec     = loadDailyResult();
+  const played  = !!(rec && rec.date === date);
+  const playBtn = document.getElementById('btn-daily');
+  const resBox  = document.getElementById('daily-result');
+  if (playBtn) {
+    playBtn.style.display = played ? 'none' : 'block';
+    playBtn.textContent   = `DAILY · #${num}`;
+  }
+  if (resBox) {
+    resBox.style.display = played ? 'flex' : 'none';
+    if (played) resBox.querySelector('.daily-result-text').textContent =
+      `DAILY #${num} · ${rec.levelsCleared}/${DAILY_LEVELS} · ${fmtDailyTime(rec.timeMs)}`;
+  }
 }
 
 // Return to the main menu (used by both pause-quit and death-screen quit)
@@ -1809,6 +2041,7 @@ function goToMenu() {
   document.getElementById('msgscreen').classList.remove('show');
   resumeGame();                      // clears paused state + unsuspends audio
   state.gameState = 'menu';
+  state.dailyRun  = null; // attempt record already written; back to normal guards
   document.getElementById('menu').classList.remove('hidden');
   showMenuPanel('menu-main');
   refreshMenuSaveUI();
@@ -1837,6 +2070,24 @@ document.getElementById('btn-cont-mobile').addEventListener('click', () => {
 });
 document.getElementById('btn-cont-back').addEventListener('click', () => showMenuPanel('menu-main'));
 
+// DAILY — panel navigation + run start + share buttons
+document.getElementById('btn-daily').addEventListener('click', () => {
+  const info = document.querySelector('#menu-daily .daily-info');
+  if (info) info.textContent = `#${dailyNumber(dailyDateStr())} · LEVELS 1-${DAILY_LEVELS} · ONE ATTEMPT`;
+  showMenuPanel('menu-daily');
+});
+document.getElementById('btn-daily-pc').addEventListener('click',     () => beginRun('mouse', 1, [], true));
+document.getElementById('btn-daily-mobile').addEventListener('click', () => beginRun('touch', 1, [], true));
+document.getElementById('btn-daily-back').addEventListener('click',   () => showMenuPanel('menu-main'));
+document.getElementById('btn-daily-share').addEventListener('click', e => {
+  const rec = loadDailyResult();
+  if (rec) copyDailyResult(e.currentTarget, dailyNumber(rec.date), rec.levelsCleared, rec.timeMs);
+});
+document.getElementById('daily-copy-btn').addEventListener('click', e => {
+  const d = state.dailyRun;
+  if (d) copyDailyResult(e.currentTarget, d.num, d.cleared, d.timeMs);
+});
+
 // "start over" — clear the save and begin fresh at level 1 (uses the remembered scheme)
 document.getElementById('btn-startover').addEventListener('click', () => {
   if (!anyPendingMutator()) clearGameSave(); // mutator runs never touch the save
@@ -1862,18 +2113,31 @@ document.getElementById('msg-quit').addEventListener('click', () => {
 document.getElementById('pause-resume').addEventListener('click', resumeGame);
 
 document.getElementById('pause-notes-btn').addEventListener('click', () => {
-  const list = document.getElementById('pause-notes-list');
-  list.innerHTML = state.collectedNotes.length === 0
-    ? '<p class="notes-empty" style="color:#666666">No notes found yet.</p>'
-    : state.collectedNotes.slice().sort((a, b) => a - b)
-        .map(lvl => {
-          const master = noteType(lvl) === 'master';
-          const col    = master ? '#c8d8e8' : '#e8c87a';
-          const hdr    = master ? `[ OBSERVATION LOG · LEVEL ${lvl} ]` : `[ FOUND NOTE · LEVEL ${lvl} ]`;
-          const font   = master ? "font-family:'Share Tech Mono',monospace;" : '';
-          return `<div class="note-entry"><span class="note-lvl" style="color:${col}">${hdr}</span><p class="note-body" style="color:${col};${font}">${getNoteText(lvl)}</p></div>`;
-        })
-        .join('');
+  const list  = document.getElementById('pause-notes-list');
+  const lore  = loadLore() || { found: [], fileClosed: false };
+  const found = new Set(lore.found);
+  let html = '';
+  // FILE CLOSED reward — pinned on top once the full set is collected
+  if (lore.fileClosed) {
+    html += `<div class="note-entry note-entry--final"><span class="note-lvl" style="color:#c8d8e8">[ FILE CLOSED ]</span><p class="note-body" style="color:#c8d8e8;font-family:'Share Tech Mono',monospace;">${NOTE_TEXTS[20]}</p></div>`;
+  }
+  // All 20 slots in order — collected: full text; uncollected: dim placeholder
+  for (let n = 1; n <= NOTE_CYCLE; n++) {
+    if (found.has(n)) {
+      const master = noteType(n) === 'master';
+      const col    = master ? '#c8d8e8' : '#e8c87a';
+      const hdr    = master ? `[ OBSERVATION LOG · LEVEL ${n} ]` : `[ FOUND NOTE · LEVEL ${n} ]`;
+      const font   = master ? "font-family:'Share Tech Mono',monospace;" : '';
+      html += `<div class="note-entry"><span class="note-lvl" style="color:${col}">${hdr}</span><p class="note-body" style="color:${col};${font}">${getNoteText(n)}</p></div>`;
+    } else {
+      html += `<div class="note-entry note-entry--locked"><span class="note-lvl" style="color:#444">? · LEVEL ${n}</span></div>`;
+    }
+  }
+  if (found.size < NOTE_CYCLE)
+    html += '<p class="notes-hint">later notes are found beyond level 10</p>';
+  list.innerHTML = html;
+  const titleEl = document.querySelector('#pause-notes .menu-panel-title');
+  if (titleEl) titleEl.textContent = `NOTES · ${found.size}/${NOTE_CYCLE}`;
   showPausePanel('pause-notes');
 });
 document.getElementById('pause-notes-back').addEventListener('click', () => showPausePanel('pause-main'));
