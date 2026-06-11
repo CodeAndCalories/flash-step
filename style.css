@@ -57,10 +57,39 @@ body.mouse-mode #s-dist { font-size: 16px; }
 @keyframes msg-in { from { opacity: 0; } to { opacity: 1; } }
 #msgscreen.dead.show .msg-title { animation: msg-in 0.9s ease both; }
 #msgscreen.dead.show .msg-sub,
-#msgscreen.dead.show .msg-info { animation: msg-in 0.7s ease 0.35s both; }
+#msgscreen.dead.show .msg-info,
+#msgscreen.dead.show #msg-runover { animation: msg-in 0.7s ease 0.35s both; }
 #msgscreen.dead.show .btn,
 #msgscreen.dead.show #msg-saved,
 #msgscreen.dead.show #msg-stats { animation: msg-in 0.5s ease 0.6s both; }
+
+/* Win screen — neutral dark vignette (not the death red); faster staged fade.
+   Flex `order` regroups info above the buttons for .win ONLY — the shared DOM
+   order is untouched, so the death screen layout is unaffected. */
+#msgscreen.win {
+  background: radial-gradient(ellipse at 50% 45%, rgba(18,18,20,0.95) 0%, rgba(8,8,9,0.96) 55%, rgba(0,0,0,0.97) 100%);
+}
+#msgscreen.win .msg-title { order: 1; }
+#msgscreen.win .msg-sub   { order: 2; }
+#msgscreen.win .msg-info  { order: 3; }
+#msgscreen.win #msg-saved { order: 4; }
+#msgscreen.win #retry-btn { order: 5; }
+#msgscreen.win #share-btn { order: 6; }
+#msgscreen.win #msg-quit  { order: 7; }
+#msgscreen.win.show .msg-title { animation: msg-in 0.5s ease both; }
+#msgscreen.win.show .msg-sub,
+#msgscreen.win.show .msg-info,
+#msgscreen.win.show #msg-saved { animation: msg-in 0.45s ease 0.2s both; }
+#msgscreen.win.show .btn { animation: msg-in 0.4s ease 0.35s both; }
+
+/* Win subtitle type accent — same hexes as the level-intro accents */
+#msgscreen.win[data-type="HUNT"]       .msg-type { color: #cc6a3a; }
+#msgscreen.win[data-type="ECHO"]       .msg-type { color: #6f9fd8; }
+#msgscreen.win[data-type="SILENCE"]    .msg-type { color: #9b9ba2; }
+#msgscreen.win[data-type="GAUNTLET"]   .msg-type { color: #dd2222; }
+#msgscreen.win[data-type="LIGHTS ON"]  .msg-type { color: #cfeccb; }
+#msgscreen.win[data-type="REFLECTION"] .msg-type { color: #9d7ce0; }
+#msgscreen.win[data-type="VOID"]       .msg-type { color: #c8d8e8; }
 
 #flash-btn { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 96px; height: 86px; background: transparent; border: 1px solid #ffffff14; color: #ffffff20; font-family: 'Share Tech Mono', monospace; font-size: 8px; letter-spacing: 3px; border-radius: 10px; cursor: pointer; pointer-events: all; z-index: 11; -webkit-tap-highlight-color: transparent; transition: all .08s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
 #flash-btn .fi { font-size: 24px; line-height: 1; opacity: 0.3; }
@@ -502,6 +531,7 @@ body.paused #dpad,
 body.paused #turn-btns,
 body.paused #flash-btn,
 body.paused #intercom-msg,
+body.paused #mutator-tag,
 body.paused #note-display,
 body.paused #crosshair { visibility: hidden; }
 
@@ -670,6 +700,38 @@ body.mouse-mode #flash-btn { display: none; }
   text-shadow: 0 0 10px #00440022; border: 1px solid rgba(255,255,255,0.05);
 }
 
+/* ── Mutators — post-game challenge modifiers (hidden until game beaten) ────── */
+
+#mutators-section { margin-top: 14px; width: clamp(220px, 60vw, 320px); }
+.mut-title {
+  color: #553333; font-size: 9px; letter-spacing: 4px;
+  text-align: center; margin-bottom: 4px;
+}
+.mut-note {
+  color: #666; font-size: 9px; letter-spacing: 1px;
+  text-align: center; margin-bottom: 4px;
+}
+.mut-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.mut-btn { min-width: 112px; padding: 8px 8px; font-size: 10px; letter-spacing: 2px; flex-shrink: 0; }
+.mut-desc { color: #666; font-size: 9px; letter-spacing: 1px; line-height: 1.5; }
+
+/* In-run corner tag listing active mutators */
+#mutator-tag {
+  position: fixed; bottom: 16px; right: 16px; z-index: 9;
+  color: #666; font-size: 9px; letter-spacing: 2px;
+  font-family: 'Share Tech Mono', monospace;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.92);
+  pointer-events: none;
+}
+/* Touch mode: lift above the turn buttons */
+body:not(.mouse-mode) #mutator-tag { bottom: 164px; }
+
+/* Permadeath verdict line on the death screen */
+#msg-runover {
+  margin-top: 14px; font-size: 11px; letter-spacing: 3px; color: #aa5555;
+  font-family: 'Share Tech Mono', monospace;
+}
+
 /* ── Keyboard focus (focus-visible only — no outline on mouse/touch) ───────── */
 
 .menu-btn:focus-visible, .btn:focus-visible, .toggle-btn:focus-visible {
@@ -708,6 +770,12 @@ body.mouse-mode .stat { text-shadow: 0 0 10px #ff000055, 0 1px 3px rgba(0,0,0,0.
   #msgscreen.dead.show .msg-info,
   #msgscreen.dead.show .btn,
   #msgscreen.dead.show #msg-saved,
-  #msgscreen.dead.show #msg-stats { animation: none; }
+  #msgscreen.dead.show #msg-stats,
+  #msgscreen.dead.show #msg-runover,
+  #msgscreen.win.show .msg-title,
+  #msgscreen.win.show .msg-sub,
+  #msgscreen.win.show .msg-info,
+  #msgscreen.win.show #msg-saved,
+  #msgscreen.win.show .btn { animation: none; }
   #stamina-fill, .brt-fill { transition: none; }
 }

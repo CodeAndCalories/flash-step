@@ -75,6 +75,9 @@ export const state = {
   webs:            [],
   webEffect:       null,
   levelType:       'HUNT',
+  // Mutators — post-game challenge modifiers; snapshot from the menu at run
+  // start, read-only during play. Mutator runs never write save/hiscore keys.
+  mutators:        { blindMap: false, permadeath: false },
   // Sprint / stamina
   stamina:         1.0,
   sprinting:       false,
