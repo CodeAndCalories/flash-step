@@ -65,6 +65,19 @@
       <button class="menu-btn platform-btn" id="btn-mobile">📱&nbsp; PLAY ON MOBILE</button>
     </nav>
     <button id="btn-startover" class="start-over-link" style="display:none">start over</button>
+    <!-- Mutators — shown only once the game has been beaten (hiscore maxLevel ≥ 10) -->
+    <div id="mutators-section" style="display:none">
+      <div class="mut-title">MODIFIERS</div>
+      <div class="mut-note">modifier runs don't save progress</div>
+      <div class="mut-row">
+        <button class="toggle-btn mut-btn" id="mut-blindmap" aria-pressed="false">BLIND MAP</button>
+        <span class="mut-desc">the map is gone. so are you.</span>
+      </div>
+      <div class="mut-row">
+        <button class="toggle-btn mut-btn" id="mut-permadeath" aria-pressed="false">PERMADEATH</button>
+        <span class="mut-desc">one life. make it count.</span>
+      </div>
+    </div>
     <div class="menu-sep"></div>
     <nav class="menu-nav">
       <button class="menu-btn menu-btn--sm" id="btn-options">OPTIONS</button>
@@ -218,6 +231,7 @@
   <div class="msg-title"></div>
   <div class="msg-sub"></div>
   <div class="msg-info"></div>
+  <div id="msg-runover" style="display:none"></div>
   <button class="btn" style="margin-top:38px" id="retry-btn">TRY AGAIN</button>
   <div id="msg-saved" style="display:none"></div>
   <div id="msg-stats" style="display:none"></div>
@@ -253,6 +267,8 @@
 </div>
 
 <div id="intercom-msg" style="display:none"></div>
+
+<div id="mutator-tag" style="display:none"></div>
 
 <div id="hint-display" style="display:none"></div>
 

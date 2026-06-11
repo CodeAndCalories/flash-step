@@ -704,7 +704,8 @@ function loop(ts) {
   // Stalker moves: when flash is on, OR always in LIGHTS ON
   if (state.E.active && (state.flashAlpha > 0.04 || state.levelType === 'LIGHTS ON')) {
     if (!state.firstFlashDone) {
-      state.firstFlashDone = true; state.minimapTimer = 4;
+      state.firstFlashDone = true;
+      state.minimapTimer = state.mutators.blindMap ? 0 : 4; // BLIND MAP: never reveal
       if (state.level === 1 && state.level1Hints && !state.level1Hints.enemy) {
         showHint('IT MOVES WHEN YOU LOOK', 3000); state.level1Hints.enemy = true;
       }
@@ -1024,9 +1025,17 @@ const SAVE_KEY = 'flashstep-save';
 function loadGameSave() {
   try { return JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch(e) { return null; }
 }
+// True while the current run has any challenge mutator enabled
+function anyMutatorActive() {
+  const m = state.mutators;
+  return !!(m && (m.blindMap || m.permadeath));
+}
 // Save current progress. escaped=true also bumps the lifetime escape counter.
 // Level never regresses (Math.max), so re-saving an earlier level is a no-op.
 function writeGameSave(level, escaped) {
+  // MUTATOR GUARD — single choke point: mutator runs never write the checkpoint.
+  // Covers every call site: showMsg win branch, #msg-quit, #pause-quit.
+  if (anyMutatorActive()) return null;
   const prev = loadGameSave() || { level: 1, notes: [], totalEscapes: 0 };
   const data = {
     level: Math.max(prev.level || 1, level),
@@ -1290,30 +1299,52 @@ function showMsg(type) {
     ? (DEATH_MSGS[state.killedBy] || { title: 'CAUGHT', sub: 'It was waiting for you.' })
     : null;
   el.querySelector('.msg-title').textContent = type === 'dead' ? dm.title : 'ESCAPED';
-  el.querySelector('.msg-sub').textContent   = type === 'dead'
-    ? dm.sub
-    : `${state.levelType} COMPLETE · LEVEL ${state.level}`;
-  el.querySelector('.msg-info').textContent  =
-    `BRIGHTNESS: ${Math.round(state.flashBrightness * 100)}%  ·  LEVEL ${state.level}`;
+  if (type === 'dead') {
+    el.querySelector('.msg-sub').textContent  = dm.sub;
+    el.querySelector('.msg-info').textContent =
+      `BRIGHTNESS: ${Math.round(state.flashBrightness * 100)}%  ·  LEVEL ${state.level}`;
+  } else {
+    // Win: merged two-line summary, type name accented via the same data-type
+    // pattern as the level intro card. Display-only — the save below is unchanged.
+    el.dataset.type = state.levelType;
+    el.querySelector('.msg-sub').innerHTML =
+      `<span class="msg-type">${state.levelType}</span> COMPLETE`;
+    el.querySelector('.msg-info').textContent =
+      `LEVEL ${state.level} · BRIGHTNESS ${Math.round(state.flashBrightness * 100)}%`;
+  }
   if (type === 'win' && state.level === 10) {
     el.querySelector('.msg-sub').textContent  = 'THE CYCLE IS COMPLETE';
     el.querySelector('.msg-info').textContent = '∞ ENDLESS MODE UNLOCKED';
   }
   el.classList.add('show');
-  document.getElementById('retry-btn').textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
+  const retryBtn = document.getElementById('retry-btn');
+  retryBtn.textContent = type === 'win' ? 'NEXT LEVEL' : 'TRY AGAIN';
+  // PERMADEATH: one life — no retry on death; show the run-over verdict instead
+  retryBtn.style.display = (type === 'dead' && state.mutators.permadeath) ? 'none' : '';
+  const runoverEl = document.getElementById('msg-runover');
+  if (runoverEl) {
+    if (type === 'dead' && state.mutators.permadeath) {
+      runoverEl.style.display = 'block';
+      runoverEl.textContent   = `RUN OVER · REACHED LEVEL ${state.level}`;
+    } else {
+      runoverEl.style.display = 'none';
+    }
+  }
   const shareBtn = document.getElementById('share-btn');
   if (shareBtn) shareBtn.style.display = type === 'win' ? 'inline-block' : 'none';
   if (type === 'win') {
     state.winLevel   = state.level;
     state.winType    = state.levelType;
     state.winFlashes = state.flashesUsedThisLevel;
-    const hs = loadHighScore();
-    hs.maxLevel     = Math.max(hs.maxLevel || 0, state.level);
-    hs.totalEscaped = (hs.totalEscaped || 0) + 1;
-    if (state.level >= 4 && (hs.minFlashes === undefined || state.flashesUsedThisLevel < hs.minFlashes))
-      hs.minFlashes = state.flashesUsedThisLevel;
-    saveHighScore(hs);
-    updateHiScoreDisplay();
+    if (!anyMutatorActive()) { // mutator runs never write the hiscore key
+      const hs = loadHighScore();
+      hs.maxLevel     = Math.max(hs.maxLevel || 0, state.level);
+      hs.totalEscaped = (hs.totalEscaped || 0) + 1;
+      if (state.level >= 4 && (hs.minFlashes === undefined || state.flashesUsedThisLevel < hs.minFlashes))
+        hs.minFlashes = state.flashesUsedThisLevel;
+      saveHighScore(hs);
+      updateHiScoreDisplay();
+    }
     state.level++;
     // Checkpoint: escaping a level unlocks the next one. Only ever advances (Math.max).
     writeGameSave(state.level, true);
@@ -1688,12 +1719,42 @@ function hallucinSafeCheck() {
 }
 function hallucinTriggerVignette() { state.hallucinVignette = 1.0; }
 
+// ── Mutators — post-game challenge modifiers ──────────────────────────────────
+// Menu selection lives here until run start; applies to that run only (never
+// persisted). Unlock condition: hiscore maxLevel ≥ 10 (game beaten once).
+const pendingMutators = { blindMap: false, permadeath: false };
+function anyPendingMutator() {
+  return pendingMutators.blindMap || pendingMutators.permadeath;
+}
+function wireMutatorToggle(id, key) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    pendingMutators[key] = !pendingMutators[key];
+    btn.setAttribute('aria-pressed', String(pendingMutators[key]));
+  });
+}
+wireMutatorToggle('mut-blindmap',   'blindMap');
+wireMutatorToggle('mut-permadeath', 'permadeath');
+
 // Start a run at startLevel with the given control scheme. notes seeds the run's
 // collected-notes log (from a save when continuing, [] for a new game).
 function beginRun(scheme, startLevel, notes) {
   settings.controlScheme = scheme;
   saveSettings();
   getAudio();
+  // Mutators: snapshot the menu selection for this run. PERMADEATH always
+  // starts fresh at level 1 — the checkpoint is read-only for mutator runs.
+  state.mutators = { ...pendingMutators };
+  if (state.mutators.permadeath) { startLevel = 1; notes = []; }
+  const mutTag = document.getElementById('mutator-tag');
+  if (mutTag) {
+    const names = [];
+    if (state.mutators.blindMap)   names.push('BLIND MAP');
+    if (state.mutators.permadeath) names.push('PERMADEATH');
+    mutTag.textContent   = names.join(' · ');
+    mutTag.style.display = names.length ? 'block' : 'none';
+  }
   state.collectedNotes  = Array.isArray(notes) ? notes.slice() : [];
   // Run-scoped intercom lines (fire at most once per run)
   state.imLevel5Fired   = false;
@@ -1733,6 +1794,12 @@ function refreshMenuSaveUI() {
     mobileBtn.innerHTML = '📱&nbsp; PLAY ON MOBILE';
     startover.style.display = 'none';
   }
+  // Mutators unlock once the game has been beaten. Condition: hiscore
+  // maxLevel ≥ 10 — recorded on every win and never cleared, unlike the
+  // checkpoint save, so "start over" can't re-lock the section.
+  const mutSection = document.getElementById('mutators-section');
+  if (mutSection) mutSection.style.display =
+    (loadHighScore().maxLevel || 0) >= 10 ? 'block' : 'none';
 }
 
 // Return to the main menu (used by both pause-quit and death-screen quit)
@@ -1747,9 +1814,11 @@ function goToMenu() {
   refreshMenuSaveUI();
 }
 
-// New game (level 1) — overwrites/clears any existing save
-document.getElementById('btn-pc').addEventListener('click',     () => { clearGameSave(); beginRun('mouse', 1, []); });
-document.getElementById('btn-mobile').addEventListener('click', () => { clearGameSave(); beginRun('touch', 1, []); });
+// New game (level 1) — overwrites/clears any existing save.
+// SAVE SAFETY: a mutator run must leave the checkpoint exactly as-is, so the
+// pre-run clear is skipped whenever any mutator is selected.
+document.getElementById('btn-pc').addEventListener('click',     () => { if (!anyPendingMutator()) clearGameSave(); beginRun('mouse', 1, []); });
+document.getElementById('btn-mobile').addEventListener('click', () => { if (!anyPendingMutator()) clearGameSave(); beginRun('touch', 1, []); });
 
 // CONTINUE — choose controls, then resume at the saved level with restored notes
 document.getElementById('btn-continue').addEventListener('click', () => {
@@ -1770,7 +1839,7 @@ document.getElementById('btn-cont-back').addEventListener('click', () => showMen
 
 // "start over" — clear the save and begin fresh at level 1 (uses the remembered scheme)
 document.getElementById('btn-startover').addEventListener('click', () => {
-  clearGameSave();
+  if (!anyPendingMutator()) clearGameSave(); // mutator runs never touch the save
   beginRun(isMouseMode() ? 'mouse' : 'touch', 1, []);
 });
 
@@ -1829,7 +1898,7 @@ document.getElementById('pause-quit').addEventListener('click', () => {
   const btn = document.getElementById('pause-quit');
   if (btn._t) return;                             // ignore re-clicks during the confirm
   const orig = btn.textContent;
-  btn.textContent = 'SAVED.';
+  btn.textContent = anyMutatorActive() ? 'NO SAVE.' : 'SAVED.'; // mutator runs don't write
   btn._t = setTimeout(() => { btn._t = null; btn.textContent = orig; goToMenu(); }, 800);
 });
 
