@@ -58,7 +58,8 @@ body.mouse-mode #s-dist { font-size: 16px; }
 #msgscreen.dead.show .msg-title { animation: msg-in 0.9s ease both; }
 #msgscreen.dead.show .msg-sub,
 #msgscreen.dead.show .msg-info,
-#msgscreen.dead.show #msg-runover { animation: msg-in 0.7s ease 0.35s both; }
+#msgscreen.dead.show #msg-runover,
+#msgscreen.dead.show #msg-daily { animation: msg-in 0.7s ease 0.35s both; }
 #msgscreen.dead.show .btn,
 #msgscreen.dead.show #msg-saved,
 #msgscreen.dead.show #msg-stats { animation: msg-in 0.5s ease 0.6s both; }
@@ -79,7 +80,8 @@ body.mouse-mode #s-dist { font-size: 16px; }
 #msgscreen.win.show .msg-title { animation: msg-in 0.5s ease both; }
 #msgscreen.win.show .msg-sub,
 #msgscreen.win.show .msg-info,
-#msgscreen.win.show #msg-saved { animation: msg-in 0.45s ease 0.2s both; }
+#msgscreen.win.show #msg-saved,
+#msgscreen.win.show #msg-daily { animation: msg-in 0.45s ease 0.2s both; }
 #msgscreen.win.show .btn { animation: msg-in 0.4s ease 0.35s both; }
 
 /* Win subtitle type accent — same hexes as the level-intro accents */
@@ -679,6 +681,14 @@ body.mouse-mode #flash-btn { display: none; }
   display: inline-block; width: 56px; height: 8px;
   background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10);
   vertical-align: middle; border-radius: 4px; overflow: hidden;
+  position: relative;
+}
+/* DYING LIGHT: dim segment marking the unreachable brightness range
+   (width set per level in initGame; 0% — invisible — on normal runs) */
+#brightness-bar-lost {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 0;
+  background: rgba(140, 30, 30, 0.35);
+  pointer-events: none;
 }
 .brt-fill {
   display: block; height: 100%; width: 35%;
@@ -732,6 +742,49 @@ body:not(.mouse-mode) #mutator-tag { bottom: 164px; }
   font-family: 'Share Tech Mono', monospace;
 }
 
+/* ── Daily run — cyan/teal accent, distinct from amber CONTINUE / red play ──── */
+
+.daily-btn {
+  border-color: #1e6a6a; color: #4ec9c9;
+  box-shadow: 0 0 28px #1e6a6a33, inset 0 0 20px #1e6a6a11;
+}
+.daily-btn:hover, .daily-btn:active {
+  border-color: #2e8a8a; color: #6ee0e0;
+  box-shadow: 0 0 50px #1e6a6a55; background: #1e6a6a22;
+}
+#daily-block { display: flex; flex-direction: column; align-items: center; margin-top: 2px; }
+.daily-sub { color: #666; font-size: 9px; letter-spacing: 1px; text-align: center; margin-top: 4px; }
+#daily-result { display: none; flex-direction: column; align-items: center; gap: 2px; }
+.daily-result-text { color: #4ec9c9; font-size: 10px; letter-spacing: 2px; margin-top: 6px; }
+.daily-info { font-size: 10px; letter-spacing: 2px; color: #2e7a7a; margin-bottom: 10px; }
+#msg-daily {
+  margin-top: 14px; font-size: 11px; letter-spacing: 3px; color: #4ec9c9;
+  font-family: 'Share Tech Mono', monospace;
+}
+/* Win-screen flex order: result line groups with the info, copy with buttons */
+#msgscreen.win #msg-daily { order: 4; }
+#msgscreen.win #daily-copy-btn { order: 6; }
+
+/* ── Lore log / FILE CLOSED ─────────────────────────────────────────────────── */
+
+#lore-toast {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+  z-index: 36; display: none; pointer-events: none;
+  color: #c8d8e8; font-size: 11px; letter-spacing: 3px;
+  font-family: 'Share Tech Mono', monospace;
+  background: rgba(8,12,16,0.92); border: 1px solid #46627e;
+  padding: 9px 18px;
+  text-shadow: 0 0 8px rgba(150,190,230,0.35);
+  animation: msg-in 0.4s ease both;
+}
+#file-closed-marker { color: #666; font-size: 9px; letter-spacing: 3px; margin-top: 6px; }
+.note-entry--locked { padding: 10px 4px; }
+.notes-hint { color: #666; font-size: 9px; letter-spacing: 1px; text-align: center; padding: 12px 0 2px; }
+.note-entry--final {
+  border: 1px solid #46627e; background: rgba(80,130,180,0.05);
+  padding: 14px 10px; margin-bottom: 8px;
+}
+
 /* ── Keyboard focus (focus-visible only — no outline on mouse/touch) ───────── */
 
 .menu-btn:focus-visible, .btn:focus-visible, .toggle-btn:focus-visible {
@@ -772,10 +825,13 @@ body.mouse-mode .stat { text-shadow: 0 0 10px #ff000055, 0 1px 3px rgba(0,0,0,0.
   #msgscreen.dead.show #msg-saved,
   #msgscreen.dead.show #msg-stats,
   #msgscreen.dead.show #msg-runover,
+  #msgscreen.dead.show #msg-daily,
+  #msgscreen.win.show #msg-daily,
   #msgscreen.win.show .msg-title,
   #msgscreen.win.show .msg-sub,
   #msgscreen.win.show .msg-info,
   #msgscreen.win.show #msg-saved,
   #msgscreen.win.show .btn { animation: none; }
   #stamina-fill, .brt-fill { transition: none; }
+  #lore-toast { animation: none; }
 }

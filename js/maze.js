@@ -1,12 +1,33 @@
-export function shuf(a) {
+// Mulberry32 — tiny seeded PRNG for deterministic level generation (daily
+// runs). One generator per level gen; never re-seed mid-generation.
+export function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// FNV-1a string hash → 32-bit seed (e.g. hashSeed('2026-07-01|3'))
+export function hashSeed(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+export function shuf(a, rng = Math.random) {
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.random() * i | 0;
+    const j = rng() * i | 0;
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
 }
 
-export function genMaze(cols, rows) {
+export function genMaze(cols, rows, rng = Math.random) {
   if (cols % 2 === 0) cols++;
   if (rows % 2 === 0) rows++;
   const g = Array.from({ length: rows }, (_, r) =>
@@ -16,7 +37,7 @@ export function genMaze(cols, rows) {
   const stk = [[1, 1]];
   while (stk.length) {
     const [r, c] = stk[stk.length - 1];
-    const dirs = shuf([[0, 2], [0, -2], [2, 0], [-2, 0]]);
+    const dirs = shuf([[0, 2], [0, -2], [2, 0], [-2, 0]], rng);
     let mv = false;
     for (const [dr, dc] of dirs) {
       const nr = r + dr, nc = c + dc;
@@ -37,7 +58,7 @@ export function genMaze(cols, rows) {
     if (c > 0 && c < cols - 1 && !g[r][c - 1] && !g[r][c + 1]) cands.push([r, c]);
     else if (r > 0 && r < rows - 1 && !g[r - 1][c] && !g[r + 1][c]) cands.push([r, c]);
   }
-  shuf(cands);
+  shuf(cands, rng);
   for (let i = 0; i < Math.floor(cands.length * 0.28); i++) g[cands[i][0]][cands[i][1]] = 0;
   return { g, cols, rows };
 }

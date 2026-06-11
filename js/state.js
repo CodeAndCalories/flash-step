@@ -77,7 +77,13 @@ export const state = {
   levelType:       'HUNT',
   // Mutators — post-game challenge modifiers; snapshot from the menu at run
   // start, read-only during play. Mutator runs never write save/hiscore keys.
-  mutators:        { blindMap: false, permadeath: false },
+  mutators:        { blindMap: false, permadeath: false, dyingLight: false, allGauntlet: false },
+  // DAILY RUN — null normally; { date, num, timeMs, cleared } during a daily.
+  // Guarded like mutator runs: never writes checkpoint/hiscore keys.
+  dailyRun:        null,
+  // FILE CLOSED toast — set when the 20th note completes the lore log; fired
+  // at the next safe moment (level complete or pause open), then cleared.
+  loreToastPending: false,
   // Sprint / stamina
   stamina:         1.0,
   sprinting:       false,
