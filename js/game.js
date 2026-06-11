@@ -292,7 +292,7 @@ function loop(ts) {
     state.jumpScareTimer = Math.max(0, state.jumpScareTimer - dt / 220);
     const { ctx, W, H } = state;
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    draw(0, 0, 0);
+    draw(0, 0, 0, dt);
     state.frameId = requestAnimationFrame(loop);
     return;
   }
@@ -491,8 +491,10 @@ function loop(ts) {
   if (mouse) {
     // Cap raw delta so a single huge frame (flick / hitch) can't snap the view ~180°
     const rawDelta = Math.max(-40, Math.min(40, mouseDeltaX));
-    // Lerp toward the (capped) raw delta for smooth, low-jitter turning
-    smoothedMouseDelta += (rawDelta - smoothedMouseDelta) * 0.18;
+    // Lerp toward the (capped) raw delta for smooth, low-jitter turning.
+    // dt-scaled so turn feel is identical at any refresh rate (0.18/frame at 60 fps).
+    const smoothK = 1 - Math.pow(1 - 0.18, dt * 0.06);
+    smoothedMouseDelta += (rawDelta - smoothedMouseDelta) * smoothK;
     P.angle    += smoothedMouseDelta * settings.mouseSens;
     mouseDeltaX = 0;
     state.lookDelta = 0;
@@ -880,7 +882,7 @@ function loop(ts) {
   const effBright = state.cursedFlash ? 1.0 : state.flashBrightness;
   const rawLit = state.levelType === 'LIGHTS ON' ? (state.blackoutActive ? 0 : 1.0)
     : (state.flashAlpha > 0 ? state.flashAlpha : state.flashDecay * 0.32) * effBright;
-  draw(rawLit, bob, state.outlineAlpha);
+  draw(rawLit, bob, state.outlineAlpha, dt);
   state.frameId = requestAnimationFrame(loop);
 }
 
