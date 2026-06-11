@@ -4,13 +4,13 @@
 body { background: #000; overflow: hidden; touch-action: none; font-family: 'Share Tech Mono', monospace; user-select: none; }
 canvas { display: block; position: fixed; top: 0; left: 0; }
 
-#ui { position: fixed; top: 0; left: 0; right: 0; padding: 12px 18px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
+#ui { position: fixed; top: 0; left: 0; right: 0; padding: 16px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
 .stat {
   color: #991111; font-size: 15px; letter-spacing: 2px; text-shadow: 0 0 8px #ff000066; line-height: 1.8;
   background: rgba(0,0,0,0.48); padding: 5px 11px; border-radius: 2px;
 }
 
-body.mouse-mode #ui { padding: 16px 22px; align-items: center; }
+body.mouse-mode #ui { padding: 16px; align-items: center; }
 body.mouse-mode .stat {
   font-size: 18px; letter-spacing: 2.5px; line-height: 1.4;
   background: rgba(0,0,0,0.62); padding: 9px 18px;
@@ -20,7 +20,21 @@ body.mouse-mode .stat {
 body.mouse-mode #s-dist { font-size: 16px; }
 
 /* #overlay removed — replaced by #menu */
-.title { font-family: 'Creepster', cursive; font-size: clamp(50px, 12vw, 88px); color: #fff; letter-spacing: 6px; text-shadow: 0 0 40px #fff5, 0 0 100px #fff2; margin-bottom: 4px; text-align: center; }
+.title { font-family: 'Creepster', cursive; font-size: clamp(50px, 12vw, 88px); color: #fff; letter-spacing: 6px; text-shadow: 0 0 40px #fff5, 0 0 100px #fff2; margin-bottom: 4px; text-align: center; animation: title-flicker 8.4s linear infinite; }
+
+/* Slow, irregular title flicker — mood, not strobe (max dip 0.90, long holds) */
+@keyframes title-flicker {
+  0%, 100% { opacity: 1;    text-shadow: 0 0 40px #fff5, 0 0 100px #fff2; }
+  9%       { opacity: 0.93; }
+  11%      { opacity: 1; }
+  34%      { opacity: 0.97; }
+  38%      { opacity: 0.90; text-shadow: 0 0 30px #fff4, 0 0 80px #fff1; }
+  40%      { opacity: 1; }
+  67%      { opacity: 0.95; }
+  70%      { opacity: 1; }
+  86%      { opacity: 0.92; }
+  88%      { opacity: 1; }
+}
 .subtitle { color: #991111; font-size: clamp(10px, 2.5vw, 12px); letter-spacing: 4px; text-transform: uppercase; margin-bottom: 44px; text-align: center; line-height: 2.2; padding: 0 30px; text-shadow: 0 0 10px #ff0000; }
 .btn { background: transparent; border: 1px solid #771111; color: #bb2222; font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 5px; padding: 13px 40px; cursor: pointer; text-transform: uppercase; box-shadow: 0 0 20px #77111122, inset 0 0 20px #77111111; transition: all .2s; -webkit-tap-highlight-color: transparent; margin-top: 6px; }
 .btn:hover, .btn:active { background: #77111122; box-shadow: 0 0 40px #77111144; }
@@ -34,19 +48,37 @@ body.mouse-mode #s-dist { font-size: 16px; }
 .msg-sub  { margin-top: 8px; font-size: 11px; letter-spacing: 4px; color: #555; }
 .msg-info { margin-top: 4px; font-size: 9px; letter-spacing: 3px; color: #333; }
 #msg-saved { margin-top: 12px; font-size: 9px; letter-spacing: 2px; color: #666666; font-family: 'Share Tech Mono', monospace; }
+#msg-stats { margin-top: 6px; font-size: 9px; letter-spacing: 2px; color: #775555; font-family: 'Share Tech Mono', monospace; }
+
+/* Death screen — dark red vignette; title lands first, UI fades in 600 ms later */
+#msgscreen.dead {
+  background: radial-gradient(ellipse at 50% 45%, rgba(30,3,3,0.96) 0%, rgba(13,1,1,0.96) 55%, rgba(2,0,0,0.97) 100%);
+}
+@keyframes msg-in { from { opacity: 0; } to { opacity: 1; } }
+#msgscreen.dead.show .msg-title { animation: msg-in 0.9s ease both; }
+#msgscreen.dead.show .msg-sub,
+#msgscreen.dead.show .msg-info { animation: msg-in 0.7s ease 0.35s both; }
+#msgscreen.dead.show .btn,
+#msgscreen.dead.show #msg-saved,
+#msgscreen.dead.show #msg-stats { animation: msg-in 0.5s ease 0.6s both; }
 
 #flash-btn { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 96px; height: 86px; background: transparent; border: 1px solid #ffffff14; color: #ffffff20; font-family: 'Share Tech Mono', monospace; font-size: 8px; letter-spacing: 3px; border-radius: 10px; cursor: pointer; pointer-events: all; z-index: 11; -webkit-tap-highlight-color: transparent; transition: all .08s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
 #flash-btn .fi { font-size: 24px; line-height: 1; opacity: 0.3; }
 #flash-btn.active { border-color: #ffffffcc; box-shadow: 0 0 60px #ffffff22; background: #ffffff0c; }
 #flash-btn.active .fi { opacity: 1; }
 
-#dpad { position: fixed; bottom: 16px; left: 12px; display: flex; flex-direction: column; gap: 5px; z-index: 11; pointer-events: all; }
+#dpad { position: fixed; bottom: 16px; left: 16px; display: flex; flex-direction: column; gap: 5px; z-index: 11; pointer-events: all; }
 .db { width: 68px; height: 68px; background: #ffffff06; border: 1px solid #ffffff0e; color: #ffffff30; font-size: 22px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background .08s; }
 .db:active, .db.pressed { background: #ffffff18; color: #ffffff66; }
 
-#turn-btns { position: fixed; bottom: 16px; right: 12px; display: flex; flex-direction: row; gap: 5px; z-index: 11; pointer-events: all; }
+#turn-btns { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: row; gap: 5px; z-index: 11; pointer-events: all; }
 .tb { width: 66px; height: 140px; background: #ffffff06; border: 1px solid #ffffff0e; color: #ffffff30; font-size: 26px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background .08s; }
 .tb:active, .tb.pressed { background: #ffffff18; color: #ffffff66; }
+
+/* Narrow screens: slim the turn buttons so they clear the centered flash button */
+@media (max-width: 400px) {
+  .tb { width: 60px; }
+}
 
 #crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 8; opacity: 0.15; }
 #s-moving { color: #881111; font-size: 8px; letter-spacing: 3px; margin-top: 2px; opacity: 0; transition: opacity .1s; text-shadow: 0 0 6px #ff0000; }
@@ -95,8 +127,12 @@ body.mouse-mode #s-dist { font-size: 16px; }
 
 /* ── Main menu ────────────────────────────────────────────────────────────────── */
 
-#menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; z-index: 30; overflow: hidden; }
-#menu.hidden { display: none; }
+#menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 42%, #0c0607 0%, #040202 60%, #000 100%);
+  z-index: 30; overflow: hidden; transition: opacity 0.4s ease; }
+/* Fade instead of hard cut on game start; visibility flips after the fade so
+   clicks never land on an invisible menu */
+#menu.hidden { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.4s ease, visibility 0s linear 0.4s; }
 
 /* Flickering upward red light — pure CSS, zero JS, zero canvas */
 #menu-bg {
@@ -138,9 +174,9 @@ body.mouse-mode #s-dist { font-size: 16px; }
   padding: 13px 0; width: clamp(200px, 36vw, 260px);
   cursor: pointer; text-transform: uppercase; text-align: center;
   box-shadow: 0 0 20px #77111122, inset 0 0 20px #77111111;
-  transition: all .2s; -webkit-tap-highlight-color: transparent; margin-top: 6px;
+  transition: all .12s; -webkit-tap-highlight-color: transparent; margin-top: 6px;
 }
-.menu-btn:hover, .menu-btn:active { background: #77111122; box-shadow: 0 0 40px #77111144; color: #dd3333; }
+.menu-btn:hover, .menu-btn:active { background: #77111122; border-color: #992222; box-shadow: 0 0 40px #77111144; color: #dd3333; }
 
 .menu-btn--back {
   padding: 10px 28px; width: auto; min-width: 0; font-size: 11px;
@@ -239,11 +275,11 @@ input[type="range"]::-moz-range-thumb {
 
 #stamina-bar {
   position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
-  width: 110px; height: 3px; background: rgba(0,0,0,0.35);
+  width: 110px; height: 5px; background: rgba(0,0,0,0.35);
   border: 1px solid rgba(255,255,255,0.08); z-index: 11; pointer-events: none;
-  display: none;
+  display: none; border-radius: 3px; overflow: hidden;
 }
-#stamina-fill { height: 100%; width: 100%; transition: width 0.08s linear, background 0.2s; }
+#stamina-fill { height: 100%; width: 100%; transition: width 0.2s ease-out, background 0.2s; }
 
 /* ── Collectible note display ─────────────────────────────────────────────────── */
 
@@ -306,7 +342,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* ── Maze Master intercom HUD line (bottom-left) ───────────────────────────────── */
 #intercom-msg {
-  position: fixed; bottom: 16px; left: 14px; z-index: 9;
+  position: fixed; bottom: 16px; left: 16px; z-index: 9;
   font-family: 'Share Tech Mono', monospace;
   color: #c8d8e8; font-size: 11px; letter-spacing: 2px;
   text-shadow: 0 0 8px rgba(150,190,230,0.35);
@@ -335,8 +371,8 @@ body:not(.mouse-mode) #intercom-msg { bottom: 140px; }
   background: rgba(0,0,0,0.62);
 }
 .li-level {
-  font-size: 11px; letter-spacing: 5px; color: #882222;
-  text-shadow: 0 0 8px #ff000044; margin-bottom: 10px;
+  font-size: 11px; letter-spacing: 5px; color: #555;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8); margin-bottom: 10px;
 }
 .li-type {
   font-family: 'Creepster', cursive;
@@ -356,9 +392,9 @@ body:not(.mouse-mode) #intercom-msg { bottom: 140px; }
   100% { transform: scale(1);    opacity: 1; }
 }
 .li-flavor {
-  font-size: 12px; letter-spacing: 3px; color: #aa2222;
+  font-size: 12px; letter-spacing: 3px; color: #666;
   font-style: italic; margin-top: 10px; margin-bottom: 2px;
-  text-shadow: 0 0 8px #ff000044; opacity: 0;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8); opacity: 0;
 }
 .li-flavor.li-flavor-in {
   animation: li-flavor-in 0.38s ease 0.30s both;
@@ -384,6 +420,17 @@ body:not(.mouse-mode) #intercom-msg { bottom: 140px; }
   margin-top: 14px; text-shadow: 0 0 10px #ff000077;
   opacity: 0; transition: none;
 }
+
+/* Per-level-type intro accent — hexes hand-matched to THEME_GRADE in renderer.js
+   (one selector per type; data-type is set in showLevelIntro, presentation only).
+   GAUNTLET keeps the original red; the base .li-type rule is the fallback. */
+#level-intro[data-type="HUNT"]       .li-type { color: #cc6a3a; text-shadow: 0 0 50px #cc6a3a44, 0 0 100px #cc6a3a22; }
+#level-intro[data-type="ECHO"]       .li-type { color: #6f9fd8; text-shadow: 0 0 50px #6f9fd844, 0 0 100px #6f9fd822; }
+#level-intro[data-type="SILENCE"]    .li-type { color: #9b9ba2; text-shadow: 0 0 50px #9b9ba244, 0 0 100px #9b9ba222; }
+#level-intro[data-type="GAUNTLET"]   .li-type { color: #dd2222; text-shadow: 0 0 50px #ff000044, 0 0 100px #ff000022; }
+#level-intro[data-type="LIGHTS ON"]  .li-type { color: #cfeccb; text-shadow: 0 0 50px #cfeccb44, 0 0 100px #cfeccb22; }
+#level-intro[data-type="REFLECTION"] .li-type { color: #9d7ce0; text-shadow: 0 0 50px #9d7ce044, 0 0 100px #9d7ce022; }
+#level-intro[data-type="VOID"]       .li-type { color: #c8d8e8; text-shadow: 0 0 50px #c8d8e844, 0 0 100px #c8d8e822; }
 
 /* SILENCE HUD label and spawn type flash */
 #s-silence    { color: #445544; font-size: 9px; letter-spacing: 3px; margin-top: 2px; }
@@ -577,8 +624,8 @@ body.mouse-mode #flash-btn { display: none; }
 /* ── Pause ? button ───────────────────────────────────────────────────────── */
 
 #howto-btn {
-  position: fixed; top: 14px; right: 14px;
-  width: 32px; height: 32px;
+  position: fixed; top: 16px; right: 16px;
+  width: 44px; height: 44px;
   background: rgba(0,0,0,0.52);
   border: 1px solid rgba(100,0,0,0.32);
   color: #551111;
@@ -599,9 +646,9 @@ body.mouse-mode #flash-btn { display: none; }
 
 .brt-row { display: flex; align-items: center; gap: 5px; }
 .brt-outer {
-  display: inline-block; width: 56px; height: 6px;
+  display: inline-block; width: 56px; height: 8px;
   background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10);
-  vertical-align: middle;
+  vertical-align: middle; border-radius: 4px; overflow: hidden;
 }
 .brt-fill {
   display: block; height: 100%; width: 35%;
@@ -621,4 +668,46 @@ body.mouse-mode #flash-btn { display: none; }
   pointer-events: none; z-index: 9; white-space: nowrap;
   background: rgba(0,0,0,0.55); padding: 7px 18px;
   text-shadow: 0 0 10px #00440022; border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ── Keyboard focus (focus-visible only — no outline on mouse/touch) ───────── */
+
+.menu-btn:focus-visible, .btn:focus-visible, .toggle-btn:focus-visible {
+  outline: 1px solid #cc3333;
+  outline-offset: 3px;
+}
+.start-over-link:focus-visible { outline: 1px solid #884444; outline-offset: 2px; }
+
+/* ── HUD legibility — faint dark backing shadow added to each element's own
+      glow so text stays readable over LIGHTS ON's bright scenes ─────────────── */
+
+.stat { text-shadow: 0 0 8px #ff000066, 0 1px 3px rgba(0,0,0,0.92); }
+body.mouse-mode .stat { text-shadow: 0 0 10px #ff000055, 0 1px 3px rgba(0,0,0,0.92); }
+#s-moving { text-shadow: 0 0 6px #ff0000, 0 1px 3px rgba(0,0,0,0.92); }
+.stat-warn { text-shadow: 0 0 14px #ff000099, 0 1px 3px rgba(0,0,0,0.92); }
+#s-lights-on { text-shadow: 0 0 10px #ffaa0066, 0 1px 3px rgba(0,0,0,0.92); }
+#flash-tooltip { text-shadow: 0 0 8px #00440022, 0 1px 3px rgba(0,0,0,0.92); }
+#s-type, #s-notes, #s-silence, #s-void, #s-blackout, .stat-spawn-type, .brt-warn {
+  text-shadow: 0 1px 3px rgba(0,0,0,0.92);
+}
+
+/* ── Reduced motion — every animation/transition introduced or touched by the
+      UI pass goes instant; everything stays visible and functional ──────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .title, #menu-bg { animation: none; }
+  #menu, #menu.hidden { transition: none; }
+  .menu-panel, .pause-panel { transition: none; }
+  .menu-btn, .btn { transition: none; }
+  .li-type.li-slam, .li-flavor.li-flavor-in { animation: none; }
+  .li-flavor { opacity: 1; } /* base state is 0 + animation; force visible */
+  #level-intro, #level-intro * { transition: none !important; }
+  #msgscreen { transition: none; }
+  #msgscreen.dead.show .msg-title,
+  #msgscreen.dead.show .msg-sub,
+  #msgscreen.dead.show .msg-info,
+  #msgscreen.dead.show .btn,
+  #msgscreen.dead.show #msg-saved,
+  #msgscreen.dead.show #msg-stats { animation: none; }
+  #stamina-fill, .brt-fill { transition: none; }
 }

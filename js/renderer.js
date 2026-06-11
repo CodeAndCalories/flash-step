@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { settings } from './settings.js';
 
 // ── Sprite pipeline ───────────────────────────────────────────────────────────
 // Drop PNG files in sprites/ and call loadSprites() at boot.
@@ -87,6 +88,64 @@ const SCAN_PATTERN = (() => {
   return c.createPattern(pc, 'repeat');
 })();
 
+// ── Per-LEVEL-TYPE fog + color grade ──────────────────────────────────────────
+// Wall PALETTES stay per level bracket (getWallTheme: dungeon/sewer/cave/wrong,
+// plus the REFLECTION override). THEME_GRADE layers a per-level-type distance
+// fog (blended inside the existing wall shading math) and ONE full-screen tint
+// fillRect on top. Endless mode picks up whichever type is active. Tunable here:
+//   fog        [r,g,b] color far walls blend toward (scaled by current light)
+//   fogStart   fraction of the lit range where fog begins (lower = closer fog)
+//   fogDensity 0-1 max blend toward the fog color at full range (0 = no fog)
+//   desat      0-1 desaturation of wall colors (0 = untouched)
+//   tint       full-screen grade color (constant string — never built per frame)
+//   tintA      tint opacity at full light (scales with current light level)
+//   contrast   exponent multiplier on the distance-brightness curve (>1 = punchier)
+export const THEME_GRADE = {
+  HUNT:        { fog: [46, 36, 26], fogStart: 0.30, fogDensity: 0.40, desat: 0,    tint: 'rgb(70,50,30)',    tintA: 0.045, contrast: 1.00 },
+  ECHO:        { fog: [24, 38, 56], fogStart: 0.24, fogDensity: 0.55, desat: 0.22, tint: 'rgb(55,85,125)',   tintA: 0.060, contrast: 1.00 },
+  SILENCE:     { fog: [40, 40, 43], fogStart: 0.10, fogDensity: 0.72, desat: 0.60, tint: 'rgb(125,125,130)', tintA: 0.055, contrast: 1.00 },
+  GAUNTLET:    { fog: [58, 16, 10], fogStart: 0.26, fogDensity: 0.50, desat: 0,    tint: 'rgb(130,18,10)',   tintA: 0.065, contrast: 1.18 },
+  'LIGHTS ON': { fog: [44, 52, 42], fogStart: 0.70, fogDensity: 0.12, desat: 0,    tint: 'rgb(195,235,190)', tintA: 0.080, contrast: 1.00 },
+  REFLECTION:  { fog: [34, 26, 52], fogStart: 0.24, fogDensity: 0.50, desat: 0.15, tint: 'rgb(90,65,150)',   tintA: 0.060, contrast: 1.00 },
+  // VOID has no walls — neutral no-op entry so lookups never miss (grain still draws)
+  VOID:        { fog: [0, 0, 0],    fogStart: 1.00, fogDensity: 0,    desat: 0,    tint: 'rgb(0,0,0)',       tintA: 0,     contrast: 1.00 },
+};
+
+// Flashlight cone — per-column horizontal falloff, precomputed once (NR is fixed).
+// Flat bright core to ~30% from center, smoothstep down to the edge value — no
+// hard cutoff, no banding. The core sits slightly above 1 so the screen-average
+// light level matches the old uniform flashlight (~0.95×): shape changes,
+// overall visibility doesn't.
+const CONE = new Float32Array(NR);
+for (let i = 0; i < NR; i++) {
+  const x = Math.abs((i / (NR - 1)) * 2 - 1);            // 0 center → 1 edge
+  const t = Math.min(1, Math.max(0, (x - 0.30) / 0.70));
+  const s = t * t * (3 - 2 * t);                         // smoothstep
+  CONE[i] = 1.10 - s * 0.42;                             // 1.10 core → 0.68 edge
+}
+
+// Film grain — 4 noise tiles pre-rendered ONCE at init; each frame is a single
+// pattern fill at low alpha, cycling tiles with a random offset so it animates.
+const GRAIN_TILES = (() => {
+  const tiles = [];
+  for (let t = 0; t < 4; t++) {
+    const cnv = document.createElement('canvas');
+    cnv.width = cnv.height = 128;
+    const c  = cnv.getContext('2d');
+    const id = c.createImageData(128, 128);
+    const d  = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = Math.random() < 0.5 ? 0 : 255;           // dark + bright speckle
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = (Math.random() * 255) | 0;
+    }
+    c.putImageData(id, 0, 0);
+    tiles.push(c.createPattern(cnv, 'repeat'));
+  }
+  return tiles;
+})();
+let grainFrame = 0;
+
 function getWallTheme(level) {
   if (state.levelType === 'REFLECTION') return 'reflection';
   if (level >= 10) return 'wrong';
@@ -169,6 +228,7 @@ export function draw(lit, bob, outline, dt = 1000 / 60) {
 
   const hs    = bob * H * 0.28;
   const theme = getWallTheme(state.level);
+  const grade = THEME_GRADE[state.levelType] || THEME_GRADE.HUNT;
 
   if (lit > 0) {
     // Theme-aware ceiling and floor tints
@@ -192,12 +252,15 @@ export function draw(lit, bob, outline, dt = 1000 / 60) {
       c0 = `rgba(5,3,3,${lit})`;  c1 = `rgba(18,10,10,${lit})`;
       f0 = `rgba(14,8,8,${lit})`; f1 = `rgba(3,1,1,${lit})`;
     }
+    // Subtle vertical falloff — floor/ceiling sit slightly dimmer than wall centers
+    ctx.globalAlpha = 0.85;
     const cg = ctx.createLinearGradient(0, 0, 0, H / 2 + hs);
     cg.addColorStop(0, c0); cg.addColorStop(1, c1);
     ctx.fillStyle = cg; ctx.fillRect(0, 0, W, H / 2 + hs);
     const fg = ctx.createLinearGradient(0, H / 2 + hs, 0, H);
     fg.addColorStop(0, f0); fg.addColorStop(1, f1);
     ctx.fillStyle = fg; ctx.fillRect(0, H / 2 + hs, W, H);
+    ctx.globalAlpha = 1;
   }
 
   const cw = W / NR, zb = ZB;
@@ -221,7 +284,8 @@ export function draw(lit, bob, outline, dt = 1000 / 60) {
       // exit (goal) so it stays a green beacon. zBuffer (zb[i]) is written above
       // regardless, so sprite depth-testing keeps working.
       if (lit > 0 && (state.levelType !== 'VOID' || goal)) {
-        const br = Math.pow(Math.max(0, 1 - corr / effMXD), 1.08) * lit;
+        // Flashlight cone (per-column falloff table) + per-type contrast curve
+        const br = Math.pow(Math.max(0, 1 - corr / effMXD), 1.08 * grade.contrast) * lit * CONE[i];
         let r, g, b;
         if (goal) {
           const gp = 0.7 + 0.3 * Math.sin(Date.now() * 0.003);
@@ -243,6 +307,22 @@ export function draw(lit, bob, outline, dt = 1000 / 60) {
           } else {
             r = (18 + shade * 115) | 0; g = (10 + shade * 58) | 0; b = (10 + shade * 62) | 0;
           }
+          // Per-type grade: desaturate, then distance-fog toward the theme fog
+          // color (smoothstep ramp from fogStart → full range; scaled by light
+          // so fog never glows in the dark). Goal door is exempt — it stays a
+          // pure green beacon.
+          if (grade.desat > 0) {
+            const lum = r * 0.30 + g * 0.59 + b * 0.11;
+            r += (lum - r) * grade.desat; g += (lum - g) * grade.desat; b += (lum - b) * grade.desat;
+          }
+          if (grade.fogDensity > 0) {
+            const fogT = Math.min(1, Math.max(0, (corr / effMXD - grade.fogStart) / (1 - grade.fogStart)));
+            const fogF = fogT * fogT * (3 - 2 * fogT) * grade.fogDensity;
+            r += (grade.fog[0] * lit - r) * fogF;
+            g += (grade.fog[1] * lit - g) * fogF;
+            b += (grade.fog[2] * lit - b) * fogF;
+          }
+          r |= 0; g |= 0; b |= 0;
         }
         ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(i * cw, top, cw + 1, wh);
@@ -1027,6 +1107,14 @@ export function draw(lit, bob, outline, dt = 1000 / 60) {
     }
     ctx.fillStyle = SCAN_PATTERN;
     ctx.fillRect(0, 0, W, H);
+    // Per-type color grade — ONE fillRect; constant color string from THEME_GRADE,
+    // alpha rides the current light level (oversized to stay covered under shake).
+    if (grade.tintA > 0) {
+      ctx.globalAlpha = grade.tintA * Math.min(1, lit);
+      ctx.fillStyle = grade.tint;
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+      ctx.globalAlpha = 1;
+    }
   }
 
   // Proximity danger vignette — pulses red when the nearest active enemy is close,
@@ -1074,6 +1162,22 @@ export function draw(lit, bob, outline, dt = 1000 / 60) {
     hv.addColorStop(0, 'transparent');
     hv.addColorStop(1, `rgba(110,0,0,${(state.hallucinVignette * 0.38).toFixed(3)})`);
     ctx.fillStyle = hv; ctx.fillRect(0, 0, W, H);
+  }
+
+  // Film grain — one pattern fill per frame, cycling 4 pre-rendered tiles with a
+  // random offset so it animates (visible in darkness too). Alpha rises slightly
+  // as the nearest enemy closes in (reuses pd from the proximity vignette above,
+  // capped at 0.10). Translate is undone exactly (integer offsets), preserving
+  // the shake transform. Drawn before the minimap so the map stays clean.
+  if (settings.grain) {
+    grainFrame++;
+    const gox = (Math.random() * 128) | 0, goy = (Math.random() * 128) | 0;
+    ctx.translate(-gox, -goy);
+    ctx.globalAlpha = pd < 4 ? Math.min(0.10, 0.055 + (1 - pd / 4) * 0.045) : 0.055;
+    ctx.fillStyle = GRAIN_TILES[(grainFrame >> 1) & 3];
+    ctx.fillRect(gox - 20, goy - 20, W + 40, H + 40);
+    ctx.globalAlpha = 1;
+    ctx.translate(gox, goy);
   }
 
   // Minimap — shown for 4 s after first flash
