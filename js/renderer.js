@@ -68,6 +68,25 @@ export const HFOV = FOV / 2;
 export const MAXD = 18;
 export const NR   = 240;
 
+// Per-column scratch buffers — allocated once and reused every frame. NR is a
+// fixed constant (resize changes W/H, not the ray count), so these never need
+// reallocating. Every slot is overwritten by the ray loop each frame.
+const ZB        = new Float32Array(NR);
+const WALL_TOPS = new Float32Array(NR);
+const WALL_WHS  = new Float32Array(NR);
+const WALL_GOAL = new Uint8Array(NR); // 1 where the primary ray hit the exit door
+
+// Scanline pattern — 1×3 px tile (one 5% black row, two clear rows) built once;
+// a single pattern fill replaces the previous ~H/3 fillRect calls per lit frame.
+const SCAN_PATTERN = (() => {
+  const pc = document.createElement('canvas');
+  pc.width = 1; pc.height = 3;
+  const c = pc.getContext('2d');
+  c.fillStyle = 'rgba(0,0,0,0.05)';
+  c.fillRect(0, 0, 1, 1);
+  return c.createPattern(pc, 'repeat');
+})();
+
 function getWallTheme(level) {
   if (state.levelType === 'REFLECTION') return 'reflection';
   if (level >= 10) return 'wrong';
@@ -137,13 +156,13 @@ export function enemyScreen() {
   return { sx: W / 2 + (a / HFOV) * (W / 2), dist, ph: Math.min(H * 1.65 / dist, H * 3.5) };
 }
 
-export function draw(lit, bob, outline) {
+export function draw(lit, bob, outline, dt = 1000 / 60) {
   const { ctx, W, H, P, E, MAP, COLS, ROWS, flashDecay, minimapTimer, gameState } = state;
 
   ctx.save();
   if (state.shakeAmt > 0) {
     ctx.translate(state.shakeX * state.shakeAmt, state.shakeY * state.shakeAmt);
-    state.shakeAmt = Math.max(0, state.shakeAmt - 0.045);
+    state.shakeAmt = Math.max(0, state.shakeAmt - 0.045 * dt * 0.06); // dt-scaled: 0.045/frame at 60 fps
   }
   ctx.fillStyle = '#000';
   ctx.fillRect(-20, -20, W + 40, H + 40);
@@ -181,8 +200,8 @@ export function draw(lit, bob, outline) {
     ctx.fillStyle = fg; ctx.fillRect(0, H / 2 + hs, W, H);
   }
 
-  const cw = W / NR, zb = new Float32Array(NR);
-  const wallTops = new Float32Array(NR), wallWHs = new Float32Array(NR);
+  const cw = W / NR, zb = ZB;
+  const wallTops = WALL_TOPS, wallWHs = WALL_WHS;
 
   // Ray cast loop — always runs to fill depth buffer and wall geometry
   {
@@ -196,7 +215,7 @@ export function draw(lit, bob, outline) {
       const corr = dist * Math.cos(ra - P.angle);
       const wh   = Math.min(H / corr * wallH, H * 2.5);
       const top  = (H - wh) / 2 + hs;
-      wallTops[i] = top; wallWHs[i] = wh;
+      wallTops[i] = top; wallWHs[i] = wh; WALL_GOAL[i] = goal ? 1 : 0;
 
       // THE VOID: walls are invisible — skip the slice fill, but still draw the
       // exit (goal) so it stays a green beacon. zBuffer (zb[i]) is written above
@@ -357,7 +376,11 @@ export function draw(lit, bob, outline) {
     const oLit = outline * (1 - lit);
     for (let i = 0; i < NR; i++) {
       const ra = P.angle - HFOV + (i / NR) * FOV;
-      const { dist, goal } = cast(P.x, P.y, ra);
+      // Reuse the primary pass's ray results (same origin/angle this frame) —
+      // zb/WALL_GOAL hold exactly what cast() would return here. wh/top are
+      // still computed locally because the afterglow always uses wallH 0.9,
+      // while the primary pass's wallTops/wallWHs use 0.765 in the sewer theme.
+      const dist = zb[i], goal = WALL_GOAL[i] === 1;
       const corr   = dist * Math.cos(ra - P.angle);
       const wh     = Math.min(H / corr * 0.9, H * 2.5);
       const top    = (H - wh) / 2 + hs;
@@ -1002,8 +1025,8 @@ export function draw(lit, bob, outline) {
       const b = (flashDecay - 0.87) / 0.13;
       ctx.fillStyle = `rgba(255,252,238,${b * 0.13})`; ctx.fillRect(0, 0, W, H);
     }
-    ctx.fillStyle = 'rgba(0,0,0,0.05)';
-    for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+    ctx.fillStyle = SCAN_PATTERN;
+    ctx.fillRect(0, 0, W, H);
   }
 
   // Proximity danger vignette — pulses red when the nearest active enemy is close,
