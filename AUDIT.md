@@ -1,7 +1,7 @@
 # FLASH-STEP — Read-Only Code Audit **v2**
 
-Audit date: 2026-06-11 · Commit: `6d21f3c` · ~6,000 lines of code+markup, 12 sprite PNGs.
-v1 was written at `eb74fa4`, before the 7-pass polish arc. Companion docs: PROJECT.md (invariants), GAMESTATE.md, REGRESSION.md (playtest checklist).
+Audit date: 2026-06-11 · Commit: `b7d3168` · ~6,000 lines of code+markup, 12 sprite PNGs.
+v1 was written at `9c62a11`, before the 7-pass polish arc. Companion docs: PROJECT.md (invariants), GAMESTATE.md, REGRESSION.md (playtest checklist).
 
 ---
 

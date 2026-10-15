@@ -1,6 +1,6 @@
 # FLASH-STEP — REGRESSION CHECKLIST
 
-Flat playtest list for the June 2026 polish arc (commits `6a77bfb` → `6d21f3c`).
+Flat playtest list for the June 2026 polish arc (commits `78985fb` → `b7d3168`).
 Run top to bottom; each line is pass/fail. Test against a browser with an EXISTING save
 where noted — new-game tests prove nothing about migrations.
 
