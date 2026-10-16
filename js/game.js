@@ -241,8 +241,23 @@ function initGame(startLevel) {
       if (d === bbest) bcands.push([c2, r2]);
     }
     shuf(bcands, rng);
-    const [bc2, br2] = bcands[0] || [cols - 2, rows - 2];
-    state.B = { x: bc2 + 0.5, y: br2 + 0.5, active: true, moveTimer: 0, lostTimer: 0 };
+    let [bc2, br2] = bcands[0] || [cols - 2, rows - 2];
+    // Never on the start cell (PORT_SPEC OQ-28). The start is then the farthest cell (a dead
+    // end) and the next-farthest cells are its only way out, so use the farthest floor cell
+    // off every start→goal shortest path (row-major on ties; any non-start cell if none is
+    // off the path). No rng — every other generated value is unchanged.
+    if (bc2 === 1 && br2 === 1) {
+      const pathLen = dp[gr][gc];
+      let offBest = -2, anyBest = -2, anyCell = [bc2, br2];
+      for (let r2 = 1; r2 < rows - 1; r2++) for (let c2 = 1; c2 < cols - 1; c2++) {
+        if (state.MAP[r2][c2] !== 0 || (c2 === 1 && r2 === 1)) continue;
+        const d = bdm[r2][c2];
+        if (d > anyBest) { anyBest = d; anyCell = [c2, r2]; }
+        if (dp[r2][c2] + dg[r2][c2] !== pathLen && d > offBest) { offBest = d; bc2 = c2; br2 = r2; }
+      }
+      if (offBest === -2) [bc2, br2] = anyCell;
+    }
+    state.B ={ x: bc2 + 0.5, y: br2 + 0.5, active: true, moveTimer: 0, lostTimer: 0 };
   } else {
     state.B = { x: 0, y: 0, active: false, moveTimer: 0, lostTimer: 0 };
   }
